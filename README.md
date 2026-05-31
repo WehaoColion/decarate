@@ -1,6 +1,10 @@
 # DecaRate
 
-DecaRate is a Rust-powered Android and Windows focus timer. The Android app is generated from the Rust source tree, uses native Rust logic through JNI, and includes focus timing, note management, finance records, sync support, notification effects, and Xiaomi HyperOS notification experiments.
+DecaRate is a personal time, notes, and life-record system built with Rust for Android and Windows.
+
+It is designed for people who want one place to hold the shape of a day: focused work sessions, quick notes, longer records, useful documents, sync state, and the small traces that are easy to lose when they are scattered across separate apps. The timer is the entry point, but the larger goal is a private operating desk for personal rhythm, memory, and review.
+
+The Android app is generated from the Rust source tree, uses native Rust logic through JNI, and includes focus timing, note management, finance records, sync support, notification effects, and Xiaomi HyperOS notification experiments.
 
 ## Project layout
 
