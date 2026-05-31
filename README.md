@@ -1,6 +1,6 @@
-# Grid Timer
+# DecaRate
 
-Grid Timer is a Rust-powered Android and Windows focus timer. The Android app is generated from the Rust source tree, uses native Rust logic through JNI, and includes focus timing, note management, finance records, sync support, notification effects, and Xiaomi HyperOS notification experiments.
+DecaRate is a Rust-powered Android and Windows focus timer. The Android app is generated from the Rust source tree, uses native Rust logic through JNI, and includes focus timing, note management, finance records, sync support, notification effects, and Xiaomi HyperOS notification experiments.
 
 ## Project layout
 
@@ -52,7 +52,7 @@ cargo run --features desktop --bin timer_windows_client
 
 ## Public artifacts
 
-Current public artifacts are stored in `release_artifacts/current/`. Historical builds are kept in `old_apks/` for traceability. Large binaries and Word/PDF documents are tracked with Git LFS.
+Current public artifacts are stored in `release_artifacts/current/`. Historical builds are kept in `old_apks/` for traceability. Large binaries and Word/PDF documents are tracked with Git LFS. Some binary filenames retain the earlier `grid_timer` prefix for release compatibility.
 
 ## Files intentionally not published
 
