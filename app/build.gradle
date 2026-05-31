@@ -1,0 +1,254 @@
+import java.util.Properties
+import org.gradle.api.GradleException
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
+plugins {
+    id 'com.android.application' version '8.5.2'
+    id 'org.jetbrains.kotlin.android' version '1.9.24'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '1.9.24'
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+def props = new Properties()
+def signingFile = rootProject.file('release_signing.properties')
+if (signingFile.exists()) {
+    signingFile.withInputStream { props.load(it) }
+}
+def hasSigning = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword'].every { props.getProperty(it) }
+
+def crate = rootProject.file('native/gridtimer_native')
+def cargo = 'C:\\tools\\cargo\\bin\\cargo.exe'
+def cargoHome = 'C:\\tools\\cargo'
+def rustupHome = 'C:\\tools\\rustup'
+def rustLinker = 'C:\\tools\\rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin\\rust-lld.exe'
+def ndkDir = file('C:\\tools\\android-sdk\\ndk\\27.1.12297006')
+def libPath = [
+    'C:\\tools\\xwin\\crt\\lib\\x86_64',
+    'C:\\tools\\xwin\\sdk\\lib\\ucrt\\x86_64',
+    'C:\\tools\\xwin\\sdk\\lib\\um\\x86_64'
+].join(File.pathSeparator)
+def buildRoot = file('C:\\gt\\gridtimer-build')
+def rustTmp = file('C:\\gt\\tmp')
+def generatedSources = layout.buildDirectory.dir('generated/source/rustAndroid/main')
+def rustJniLibs = layout.buildDirectory.dir('rustJniLibs')
+def rustSourceInputs = fileTree(crate) {
+    include 'Cargo.toml'
+    include 'Cargo.lock'
+    include 'src/**'
+    exclude 'target/**'
+    exclude 'target_*/**'
+    exclude '.cargo_target_check/**'
+}
+def appSourceInputs = fileTree(file('src')) {
+    include '**/*'
+}
+
+def runCargo = { args, targetDir ->
+    if (!crate.exists()) throw new GradleException("Rust crate not found: ${crate.absolutePath}")
+    rustTmp.mkdirs()
+    targetDir.mkdirs()
+    exec {
+        workingDir crate
+        environment 'CARGO_HOME', cargoHome
+        environment 'RUSTUP_HOME', rustupHome
+        environment 'RUSTUP_TOOLCHAIN', 'stable-x86_64-pc-windows-msvc'
+        environment 'CARGO_TARGET_DIR', targetDir.absolutePath
+        environment 'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER', rustLinker
+        environment 'TMP', rustTmp.absolutePath
+        environment 'TEMP', rustTmp.absolutePath
+        environment 'TMPDIR', rustTmp.absolutePath
+        environment 'LIB', libPath
+        environment 'ANDROID_NDK_HOME', ndkDir.absolutePath
+        environment 'ANDROID_NDK_ROOT', ndkDir.absolutePath
+        environment 'ANDROID_NDK', ndkDir.absolutePath
+        commandLine([cargo, '--offline'] + args)
+    }
+}
+
+def versionedArtifactBaseName = { variantName ->
+    switch (variantName) {
+        case 'debug':
+            return "grid_timer_app_debug_v${android.defaultConfig.versionName}"
+        case 'xiaomiDebug':
+            return "grid_timer_app_xiaomi_debug_v${android.defaultConfig.versionName}"
+        case 'release':
+            return "grid_timer_app_v${android.defaultConfig.versionName}"
+        default:
+            return "grid_timer_app_${variantName}_v${android.defaultConfig.versionName}"
+    }
+}
+
+android {
+    namespace 'com.ofairyo.gridtimer'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.ofairyo.gridtimer'
+        minSdk 26
+        targetSdk 34
+        versionCode 21900
+        versionName '2.19-知识库AI联通'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        manifestPlaceholders.xiaomiAppId = ''
+        manifestPlaceholders.xiaomiBuildTypeDebug = 'true'
+        vectorDrawables { useSupportLibrary true }
+    }
+    signingConfigs {
+        if (hasSigning) release {
+            storeFile rootProject.file(props.getProperty('storeFile'))
+            storePassword props.getProperty('storePassword')
+            keyAlias props.getProperty('keyAlias')
+            keyPassword props.getProperty('keyPassword')
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+            enableV4Signing false
+        }
+    }
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+            resValue 'string', 'app_name', 'Grid Timer Debug'
+        }
+        xiaomiDebug {
+            initWith debug
+            applicationIdSuffix ''
+            versionNameSuffix '-xiaomiDebug'
+        }
+        release {
+            minifyEnabled false
+            manifestPlaceholders.xiaomiBuildTypeDebug = 'false'
+            if (hasSigning) signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+    kotlinOptions { jvmTarget = '17' }
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+    sourceSets.main {
+        def x = generatedSources.get().asFile
+        manifest.srcFile new File(x, 'AndroidManifest.xml')
+        res.srcDir new File(x, 'res')
+        java.srcDir x
+        jniLibs.srcDir rustJniLibs
+    }
+    composeOptions { kotlinCompilerExtensionVersion '1.5.14' }
+    packaging { resources { excludes += '/META-INF/{AL2.0,LGPL2.1}' } }
+}
+
+android.applicationVariants.configureEach { variant ->
+    variant.outputs.configureEach { output ->
+        outputFileName = "${versionedArtifactBaseName(variant.name)}.apk"
+    }
+}
+
+def archiveBuildOutput = { File source ->
+    if (!source.exists()) return
+    def archiveDir = rootProject.file('old_apks')
+    archiveDir.mkdirs()
+    def stamp = new Date(source.lastModified()).format('yyyyMMdd_HHmmss')
+    def target = new File(archiveDir, "${source.name.substring(0, source.name.lastIndexOf('.'))}_${stamp}${source.name.substring(source.name.lastIndexOf('.'))}")
+    def suffix = 1
+    while (target.exists()) {
+        target = new File(archiveDir, "${source.name.substring(0, source.name.lastIndexOf('.'))}_${stamp}_${suffix}${source.name.substring(source.name.lastIndexOf('.'))}")
+        suffix += 1
+    }
+    source.renameTo(target)
+}
+
+def versionReleaseBundle = tasks.register('versionReleaseBundle') {
+    doLast {
+        def bundleDir = layout.buildDirectory.dir('outputs/bundle/release').get().asFile
+        def defaultBundle = new File(bundleDir, 'app-release.aab')
+        def versionedBundle = new File(bundleDir, "${versionedArtifactBaseName('release')}.aab")
+        if (defaultBundle.exists()) {
+            if (versionedBundle.exists()) {
+                archiveBuildOutput(versionedBundle)
+            }
+            if (!defaultBundle.renameTo(versionedBundle)) {
+                copy { from defaultBundle; into bundleDir; rename { versionedBundle.name } }
+                defaultBundle.delete()
+            }
+        }
+    }
+}
+
+tasks.matching { it.name == 'bundleRelease' }.configureEach {
+    enabled = false
+}
+
+def generateAndroidSourcesFromRust = tasks.register('generateAndroidSourcesFromRust') {
+    inputs.files rustSourceInputs
+    outputs.dir generatedSources
+    doLast {
+        def out = generatedSources.get().asFile
+        if (out.exists()) out.deleteDir()
+        out.mkdirs()
+        runCargo(['run', '-q', '--bin', 'gridtimer_sourcegen', '--', out.absolutePath], new File(buildRoot, 'sourcegen'))
+    }
+}
+
+tasks.withType(KotlinCompile).configureEach { dependsOn generateAndroidSourcesFromRust }
+
+def buildRustNative = tasks.register('buildRustNative') {
+    inputs.files rustSourceInputs
+    outputs.dir rustJniLibs
+    doLast {
+        if (!ndkDir.exists()) throw new GradleException("Android NDK not found: ${ndkDir.absolutePath}")
+        def out = rustJniLibs.get().asFile
+        if (out.exists()) out.deleteDir()
+        out.mkdirs()
+        runCargo(['ndk', '-o', out.absolutePath, '-t', 'arm64-v8a', '-t', 'armeabi-v7a', '-t', 'x86_64', '-P', '26', 'build', '--release'], new File(buildRoot, 'native'))
+    }
+}
+
+def sourceAudit = tasks.register('sourceAudit') {
+    inputs.files rustSourceInputs
+    inputs.files appSourceInputs
+    outputs.upToDateWhen { true }
+    doLast {
+        runCargo(['run', '-q', '--bin', 'gridtimer_source_audit'], new File(buildRoot, 'audit'))
+    }
+}
+
+tasks.named('preBuild') { dependsOn generateAndroidSourcesFromRust, buildRustNative, sourceAudit }
+
+dependencies {
+    def composeBom = platform('androidx.compose:compose-bom:2024.06.00')
+    implementation composeBom
+    androidTestImplementation composeBom
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.4'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4'
+    implementation 'androidx.activity:activity-compose:1.9.3'
+    implementation 'androidx.startup:startup-runtime:1.2.0'
+    implementation 'androidx.profileinstaller:profileinstaller:1.4.1'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.animation:animation'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-extended'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
+    testImplementation 'junit:junit:4.13.2'
+}

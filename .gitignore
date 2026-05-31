@@ -1,0 +1,60 @@
+# Local IDE and OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Local GitHub preparation scratch space
+.github-upload/
+
+# Android and Gradle generated files
+.gradle/
+app/build/
+build/
+*.iml
+
+# Rust generated files
+target/
+target_*/
+native/**/target/
+native/**/target_*/
+cargo_target_*/
+.cargo_target_check*/
+native/**/.cargo_target_check*/
+
+# Temporary and generated work directories
+tmp/
+/t/
+/t[0-9]*/
+/g/
+/g[0-9]*/
+art/
+mirror/
+native/**/tmp/
+
+# Logs, sockets, and runtime state
+*.log
+*.out
+*.err
+socket_*
+
+# Local machine configuration and signing credentials
+local.properties
+release_signing.properties
+keystore/
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+
+# Generated Xiaomi status reports contain local paths and signing fingerprints.
+xiaomi_setup_status.md
+native/gridtimer_native/xiaomi_setup_status.md
+
+# Original local release copies with non-English names are republished under release_artifacts/.
+/grid_timer_app_v2.19-*.apk
+/*.exe
+
+# Original thesis folder uses non-English paths; republished copies live under documents/thesis/.
+周文豪/
