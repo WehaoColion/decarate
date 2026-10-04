@@ -1,3 +1,4 @@
+v1.1.0.7（Windows正式版）- 补齐直接问 AI、知识库问答与法律资料发送确认，改进离线 Markdown 和公式阅读；正式程序已在本机发布，公开仓库同步源码、发布元数据与验收范围。详见[本版说明](release_notes_windows_v1.1.0.7.md)。
 v2.23.2.9（Android候选）- 接入PR #3，让法律分析入口与主操作常显，增加与扫描和AI配置绑定的一次性发送确认；沿用正式签名与原APK交付位置，手机及真实模型验收待完成，Windows保持1.1.0.6。详见[本版说明](release_notes_v2.23.2.9.md)。
 v2.23.2.8（Android候选）- 接入PR #2，修复法律风险扫描失效后持续忙碌与无法重试的问题；使用原正式签名生成release APK，手机验收待完成，Windows保持1.1.0.6。详见[本版说明](release_notes_v2.23.2.8.md)。
 v2.23.2.7（Android）- 修复回答本地排版加载失败，补齐知识页公式预览与原文切换；已通过连接手机的真实 DeepSeek 调用、公式画面和原文完整性检查，正式签名 APK 已发布，Windows 保持 1.1.0.6。
@@ -76,11 +77,11 @@ v1.0.1（Windows）- Windows 从 1.0.1 开始独立编号，客户端、同步�
 
 此前 **2.23.2.3** 于 2026-10-03 完成 DeepSeek 真机知识问答验收（原始验收记录仅在本地保留）：实际随机资料问答、官方用量增量、回答保存及重新打开均已核对。仅发送一个合成知识来源，未读取密钥或改动 VPN。该记录属于 2.23.2.3，不替代后续版本的真机复测。
 
-当前正式 Windows 版本为 **1.1.0.6**，独立版本序列从 **1.0.1** 开始。客户端、配套同步服务、启动器、界面显示、发布文件及清单使用同一个 Windows 版本号。安卓保留自己的版本序列和 versionCode，两端分别发布。桌面固定入口为 `TenRate.lnk`，指向无版本的稳定启动器，按已提交的正式清单打开最新客户端；本版已通过该入口启动实际窗口并核对显示版本。
+当前正式 Windows 版本为 **1.1.0.7**，独立版本序列从 **1.0.1** 开始。客户端、配套同步服务、启动器、界面显示、发布文件及清单使用同一个 Windows 版本号。安卓保留自己的版本序列和 versionCode，两端分别发布。桌面固定入口为 `TenRate.lnk`，指向无版本的稳定启动器，按已提交的正式清单打开最新客户端；本版已通过该入口启动实际窗口并核对显示版本。
 
-后续每次发布只递增 **0.0.0.1**，固定前三段、递增第四段；已有三段版本的第四段按 0 处理。Windows **1.1** 是用户指定的例外，当前版本 **1.1.0.6**，下一版为 **1.1.0.7**；Android **2.23.2** 为用户指定的编号，当前为 **2.23.2.7**，下一版为 **2.23.2.8**。第四段持续递增，不进位到第三段；现有正式版本和历史记录保持原号。
+后续每次发布只递增 **0.0.0.1**，固定前三段、递增第四段；已有三段版本的第四段按 0 处理。Windows **1.1** 是用户指定的例外，当前版本 **1.1.0.7**，下一版为 **1.1.0.8**；Android **2.23.2** 为用户指定的编号，当前为 **2.23.2.7**，下一版为 **2.23.2.8**。第四段持续递增，不进位到第三段；现有正式版本和历史记录保持原号。
 
-实际安装版本以 `release_artifacts/current/release_manifest.json` 为准，候选构建不代表正式发布。应用版本号独立于同步协议和数据格式；重新编号保留账户、数据目录、手机配对及登录自启动任务。详见 [Windows 1.1.0.6 发布说明与实际交互验收](release_notes_windows_v1.1.0.6.md)、[Windows 1.1.0.5 发布说明](release_notes_windows_v1.1.0.5.md)、[此前性能发布验收](documents/windows_deep_optimization_v1.1.0.4.md) 和 [此前性能与边界验证](documents/windows_deep_optimization_v1.1.0.3.md)。
+实际安装版本以 `release_artifacts/current/release_manifest.json` 为准，候选构建不代表正式发布。应用版本号独立于同步协议和数据格式；重新编号保留账户、数据目录、手机配对及登录自启动任务。详见 [Windows 1.1.0.7 发布说明与验收范围](release_notes_windows_v1.1.0.7.md)、[Windows 1.1.0.6 发布说明与实际交互验收](release_notes_windows_v1.1.0.6.md)、[Windows 1.1.0.5 发布说明](release_notes_windows_v1.1.0.5.md)、[此前性能发布验收](documents/windows_deep_optimization_v1.1.0.4.md) 和 [此前性能与边界验证](documents/windows_deep_optimization_v1.1.0.3.md)。
 
 ## 历史更新记录
 
@@ -224,3 +225,7 @@ The 2026-10-04 baseline includes all current Rust application sources, Rust-gene
 Signing credentials, API keys, personal records, thesis documents, raw device diagnostics, local backups, temporary edits, caches and historical installers stay local. The public release manifest retains its schema and hashes but omits the workstation-specific linker home path. Earlier published Git history is retained; removing a personal file from the current tree does not erase its historical copies.
 
 For a fresh checkout, configure the local SDK and signing files, build the signed Android release using `tools/android.ps1 -Mode build`, then use the Windows packaging entrypoint. Verification and packaging require locally built formal artifacts; application unit tests and source generation tests do not require private signing credentials.
+
+## Windows 1.1.0.7 source synchronization
+
+The Windows 1.1.0.7 source and shared release metadata match the locally published build. See [release verification and limits](documents/windows_release_verification_v1.1.0.7.md). Signed application installers remain local because their compiled dependency metadata contains workstation-specific user paths; no private signing material or new personal files are published. Android application sources retain the already merged PR #2 and PR #3 changes; this synchronization does not rebuild or promote an Android APK.

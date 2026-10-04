@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "productId": "gridtimer",
   "displayName": "十倍率",
-  "version": "1.1.0.6",
+  "version": "1.1.0.7",
   "windowsOnly": true,
   "syncProtocolVersion": 1,
-  "gitCommit": "57ac62f9c0c82b553582489bd1e5d0ff675f5c4d",
+  "gitCommit": "18cf017ede66211bdaf229f26340c6d5e0d25f10",
   "sourceWorktreeDirty": true,
-  "sourceSnapshotSha256": "2729a55cb243075bbb5bc8832cd87a16263cec1ae48ea541ac10bf3626fe74dc",
+  "sourceSnapshotSha256": "6720034b37215496af2749806f11735364131a407fb72dcda2aa69e2ab8403fb",
   "toolchain": {
     "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
     "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
@@ -28,7 +28,7 @@
     "windows_executable_integrity_chain",
     "windows_server_runtime_smoke"
   ],
-  "createdAtEpochMillis": 1791010612410,
+  "createdAtEpochMillis": 1791139952511,
   "files": [
     {
       "role": "apk",
@@ -38,21 +38,21 @@
     },
     {
       "role": "sync_server",
-      "file_name": "grid_timer_sync_server_v1.1.0.6.exe",
-      "size": 7857152,
-      "sha256": "885138ff0145e4773604fc1585e4682a46c698caa4b891d496cb228065b95845"
+      "file_name": "grid_timer_sync_server_v1.1.0.7.exe",
+      "size": 7854592,
+      "sha256": "a478f75b87d2e7dade07519699a4bc89333131aa15dd5a7d5ca3da83f1596be2"
     },
     {
       "role": "sync_launcher",
-      "file_name": "grid_timer_sync_launcher_v1.1.0.6.exe",
-      "size": 4268032,
-      "sha256": "9074b3dd2d685e70774281d868c207d16d2de531ec5cbcb79a7f4e989972a946"
+      "file_name": "grid_timer_sync_launcher_v1.1.0.7.exe",
+      "size": 4264960,
+      "sha256": "ed80feef1660b6595d6397daee5660ce07e395357740cd9d9d93597e4eedf6b1"
     },
     {
       "role": "windows_client",
-      "file_name": "grid_timer_windows_client_v1.1.0.6.exe",
-      "size": 25522176,
-      "sha256": "a271a1d7b8af5910941937379d546bd9c7ed6a81f4c558360cb292d0d60c66aa"
+      "file_name": "grid_timer_windows_client_v1.1.0.7.exe",
+      "size": 26405376,
+      "sha256": "278733d779eb1d1a69d805d97ed12196a032ae3302fdf8a5a5cf17945d8f2f2f"
     },
     {
       "role": "cloudflared",
@@ -66,8 +66,8 @@
     "versionCode": 22276,
     "androidOnly": true,
     "verification": "release_artifacts/verification/v2.23.2.7",
-    "sourceSnapshotSha256": "75867e5f405abfedf15b072c186afa594fbac7b73da0bfe8205af5d1a8ea4ffc",
     "sha256": "56316fca4cca5b76d665af913b3d2731fbcce7b0a42fbbe1fa0a8c8c02147404",
+    "sourceSnapshotSha256": "75867e5f405abfedf15b072c186afa594fbac7b73da0bfe8205af5d1a8ea4ffc",
     "createdAt": "2026-10-03T20:03:17.6284944Z"
   }
 }

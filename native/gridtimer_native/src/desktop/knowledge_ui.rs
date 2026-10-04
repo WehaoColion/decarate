@@ -1,3 +1,4 @@
+// v1.1.0.7 Windows - Separate direct AI questions from source-only knowledge and show send scope.
 // v1.0.3.12 Windows - Index library folder names once per view instead of scanning per note.
 // v1.0.3.3 Windows - Add a dedicated canvas view to the knowledge workspace.
 // v2.22.53 - Focused knowledge workspace, contextual controls and safe navigation.
@@ -547,66 +548,133 @@ impl TimerWindowsClient {
 
     fn ui_knowledge_ai_panel(&mut self, ui: &mut egui::Ui) {
         card_frame().show(ui, |ui| {
-            section_heading(ui, "知识问答");
-            ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.radio_value(&mut self.knowledge_ai_scope_all, true, "全部知识");
-                ui.add_enabled_ui(
-                    self.data.note_preferences.selected_folder_id.is_some(),
-                    |ui| {
-                        ui.radio_value(&mut self.knowledge_ai_scope_all, false, "当前文件夹");
-                    },
-                );
+                section_heading(ui, "AI 问答");
+                if ui.button("关闭").clicked() {
+                    self.cancel_desktop_ai_query();
+                    self.knowledge_ai_panel_open = false;
+                }
             });
-            ui.add(
-                egui::TextEdit::multiline(&mut self.knowledge_ai_question_draft)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(2)
-                    .hint_text("根据这些文档回答什么？"),
-            );
-            if ui
-                .add_enabled(
-                    !self.knowledge_ai_pending
-                        && !self.knowledge_ai_question_draft.trim().is_empty(),
-                    egui::Button::new(if self.knowledge_ai_pending {
-                        "正在查阅…"
-                    } else {
-                        "提问"
-                    }),
+            let recipient = desktop_ai_configured_recipient(&self.sync);
+            ui.label(match &recipient {
+                Ok(host) => format!("{} · {}", self.sync.ai_model, host),
+                Err(error) => error.clone(),
+            });
+            if ui.button("更改 AI 设置").clicked() {
+                self.desktop_ai.preview = None;
+                self.switch_tab(AppTab::My);
+                self.ai_settings_expanded = true;
+            }
+            let old_mode = self.desktop_ai.mode;
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut self.desktop_ai.mode, QueryMode::Direct, "直接问 AI");
+                ui.radio_value(&mut self.desktop_ai.mode, QueryMode::Knowledge, "问知识库");
+            });
+            if self.desktop_ai.mode != old_mode {
+                self.desktop_ai.preview = None;
+            }
+            if self.desktop_ai.mode == QueryMode::Knowledge {
+                let old_scope = self.knowledge_ai_scope_all;
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.knowledge_ai_scope_all, true, "全部知识页");
+                    ui.add_enabled_ui(
+                        self.data.note_preferences.selected_folder_id.is_some(),
+                        |ui| {
+                            ui.radio_value(&mut self.knowledge_ai_scope_all, false, "当前文件夹");
+                        },
+                    );
+                });
+                if old_scope != self.knowledge_ai_scope_all {
+                    self.desktop_ai.preview = None;
+                }
+                ui.label("发送相关知识页节选；答案依据本次来源。加密和已删除的内容不纳入。");
+            } else {
+                ui.label("使用模型的通用知识与推理，仅发送你的问题。");
+            }
+            ui.label(format!(
+                "你的问题 · {}/1000",
+                self.knowledge_ai_question_draft.chars().count()
+            ));
+            let changed = ui
+                .add(
+                    egui::TextEdit::multiline(&mut self.knowledge_ai_question_draft)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(3)
+                        .hint_text("输入问题，例如解释复利并给出公式"),
                 )
-                .clicked()
-            {
-                self.launch_knowledge_ai();
+                .changed();
+            if changed {
+                self.desktop_ai.preview = None;
+            }
+            let valid_question = !self.knowledge_ai_question_draft.trim().is_empty()
+                && self.knowledge_ai_question_draft.chars().count() <= 1000;
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        !self.knowledge_ai_pending
+                            && valid_question
+                            && recipient.is_ok()
+                            && self.workspace_persistence_ready
+                            && !self.workspace_edit_locked()
+                            && self.background_work_is_allowed(),
+                        egui::Button::new("预览并发送问题"),
+                    )
+                    .clicked()
+                {
+                    self.launch_knowledge_ai();
+                }
+                if self.knowledge_ai_pending && ui.button("取消本次请求").clicked() {
+                    self.cancel_desktop_ai_query();
+                }
+            });
+            if !self.desktop_ai.message.is_empty() {
+                ui.label(&self.desktop_ai.message);
             }
             if let Some(answer) = self.knowledge_ai_answer.clone() {
                 ui.separator();
-                ui.label(egui::RichText::new(&answer.content).color(palette().text));
-                ui.label(
-                    egui::RichText::new(format!(
-                        "回答于 {}",
-                        format_relative_time(answer.received_at_epoch_millis)
-                    ))
-                    .size(11.0)
-                    .color(palette().muted),
-                );
-                ui.add_space(8.0);
-                ui.label(egui::RichText::new("来源").strong());
-                let mut open_source = None;
-                for ((id, title), folder) in answer
-                    .source_ids
-                    .iter()
-                    .zip(answer.source_titles.iter())
-                    .zip(answer.source_folders.iter())
-                {
-                    if ui.button(format!("{title} · {folder}")).clicked() {
-                        open_source = Some(id.clone());
+                ui.label(format!(
+                    "回答来自 {} · {} · {}",
+                    answer.recipient_host,
+                    answer.model,
+                    format_relative_time(answer.received_at_epoch_millis)
+                ));
+                ui.horizontal(|ui| {
+                    if ui.button("查看排版与公式").clicked() {
+                        self.open_desktop_ai_answer_reader();
                     }
-                }
-                if action_button(ui, "答案另存为文档", ButtonTone::Primary).clicked() {
-                    self.save_knowledge_answer_as_document();
-                }
-                if let Some(note_id) = open_source {
-                    self.open_knowledge_source(&note_id);
+                    if ui.button("复制回答原文").clicked() {
+                        ui.output_mut(|output| output.copied_text = answer.content.clone());
+                    }
+                    if ui.button("答案另存为知识页").clicked() {
+                        self.save_knowledge_answer_as_document();
+                    }
+                });
+                egui::CollapsingHeader::new("回答原文")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&answer.content).color(palette().text),
+                            )
+                            .wrap(true),
+                        );
+                    });
+                if !answer.source_ids.is_empty() {
+                    ui.label(egui::RichText::new("本次知识来源").strong());
+                    let mut open_source = None;
+                    for ((id, title), folder) in answer
+                        .source_ids
+                        .iter()
+                        .zip(answer.source_titles.iter())
+                        .zip(answer.source_folders.iter())
+                    {
+                        if ui.button(format!("{title} · {folder}")).clicked() {
+                            open_source = Some(id.clone());
+                        }
+                    }
+                    if let Some(note_id) = open_source {
+                        self.open_knowledge_source(&note_id);
+                    }
                 }
             }
         });

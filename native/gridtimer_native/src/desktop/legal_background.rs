@@ -104,6 +104,10 @@ impl TimerWindowsClient {
     fn cancel_desktop_legal_tasks(&mut self) {
         let state = &mut self.desktop_ui.legal_risk;
         state.cancel.store(true, AtomicOrdering::Release);
+        if let Some(cancellation) = &state.running_cancel {
+            cancellation.store(true, AtomicOrdering::Release);
+        }
+        state.send_consent = None;
         state.sync_cancel.store(true, AtomicOrdering::Release);
         state.store_cancel.store(true, AtomicOrdering::Release);
         state.waiting_for_save = false;
@@ -161,6 +165,7 @@ impl TimerWindowsClient {
                 }
                 match outcome.result {
                     Ok(prepared) => {
+                        self.desktop_ui.legal_risk.send_consent = None;
                         self.desktop_ui.legal_risk.preview = Some(prepared);
                         self.desktop_ui.legal_risk.preview_version = Some(outcome.version);
                         self.desktop_ui.legal_risk.preview_digest = outcome.digest;
