@@ -258,7 +258,8 @@ mod tests {
         assert!(!result.contains("FlowusWorkspaceHeader("));
         assert!(!result.contains("页面先成形，再沉淀"));
         assert!(!result.contains("label = \"页面 $noteCount\""));
-        assert_eq!(result.matches("NoteSummaryCard(").count(), 2);
+        assert_eq!(result.matches("private fun NoteSummaryCard(").count(), 1);
+        assert_eq!(result.matches("            NoteSummaryCard(").count(), 1);
         for tag in [
             "knowledge_compact_header",
             "knowledge_header_create",
@@ -288,7 +289,9 @@ mod tests {
         assert!(result.contains(
             "visibleCount = if (trashMode) filteredTrashedNotes.size else filteredActiveNotes.size,"
         ));
-        assert!(COMPACT_SUMMARY.contains("val totalCount = if (trashMode) trashCount else noteCount"));
+        assert!(
+            COMPACT_SUMMARY.contains("val totalCount = if (trashMode) trashCount else noteCount")
+        );
         assert!(COMPACT_SUMMARY.contains("else \"显示 $visibleCount / 共 $totalCount 页\""));
     }
 
@@ -321,10 +324,7 @@ mod tests {
             rendered.split_once(tail).unwrap().1
         );
         let call = "                onCreateNote = { onCreateNote(NoteDraftPreset.BLANK) },";
-        assert_eq!(
-            original.matches(call).count(),
-            rendered.matches(call).count()
-        );
+        assert_eq!(original.matches(call).count(), rendered.matches(call).count());
     }
 
     #[test]
