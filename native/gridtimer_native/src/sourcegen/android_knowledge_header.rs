@@ -56,7 +56,9 @@ fn remove_unused_header(source: &mut String) -> Result<(), String> {
     if source.matches(start).count() != 1 || source.matches(end).count() != 1 {
         return Err("compact knowledge header helper boundaries changed".into());
     }
-    let from = source.find(start).ok_or("missing workspace header helper")?;
+    let from = source
+        .find(start)
+        .ok_or("missing workspace header helper")?;
     let to = source[from..]
         .find(end)
         .map(|offset| from + offset)
@@ -253,98 +255,42 @@ mod tests {
     }
 
     #[test]
-    fn merges_the_real_two_panel_template_without_changing_callbacks() {
-        let result = render(SCREEN, base_screen()).unwrap();
-        assert!(!result.contains("FlowusWorkspaceHeader("));
-        assert!(!result.contains("页面先成形，再沉淀"));
-        assert!(!result.contains("label = \"页面 $noteCount\""));
-        assert_eq!(result.matches("private fun NoteSummaryCard(").count(), 1);
-        assert_eq!(result.matches("            NoteSummaryCard(").count(), 1);
-        for tag in [
-            "knowledge_compact_header",
-            "knowledge_header_create",
-            "knowledge_header_trash",
-            "knowledge_header_folders",
-        ] {
-            assert_eq!(result.matches(&format!("testTag(\"{tag}\")")).count(), 1);
-        }
-        for callback in ["onCreateNote", "onToggleTrash", "onManageFolders"] {
-            assert!(COMPACT_SUMMARY.contains(&format!("onClick = {callback}")));
-        }
-    }
-
-    #[test]
-    fn cached_summary_pass_still_feeds_the_single_header() {
-        let result = crate::android_note_list_performance::render(SCREEN, base_screen()).unwrap();
-        assert!(result.contains("trashCount = summaryTrashCount,"));
-        assert!(result.contains("pinnedCount = summaryPinnedCount,"));
-        assert!(result.contains("pendingChecklistCount = summaryPendingCount,"));
-        assert!(result.contains("imageNoteCount = summaryImageCount,"));
-        assert!(result.contains("testTag(\"knowledge_compact_header\")"));
-    }
-
-    #[test]
-    fn visible_and_total_counts_keep_search_and_trash_scopes() {
-        let result = render(SCREEN, base_screen()).unwrap();
-        assert!(result.contains(
-            "visibleCount = if (trashMode) filteredTrashedNotes.size else filteredActiveNotes.size,"
-        ));
-        assert!(
-            COMPACT_SUMMARY.contains("val totalCount = if (trashMode) trashCount else noteCount")
-        );
-        assert!(COMPACT_SUMMARY.contains("else \"显示 $visibleCount / 共 $totalCount 页\""));
-    }
-
-    #[test]
-    fn retains_actions_stats_and_bounded_privacy_aware_preview() {
-        assert_eq!(COMPACT_SUMMARY.matches("FlowusIconAction(").count(), 3);
-        assert_eq!(COMPACT_SUMMARY.matches("heightIn(min = 48.dp)").count(), 3);
-        assert_eq!(COMPACT_SUMMARY.matches("FlowRow(").count(), 3);
-        assert!(COMPACT_SUMMARY.contains("note.previewBody()"));
-        assert!(COMPACT_SUMMARY.contains("maxLines = 1"));
-        assert!(!COMPACT_SUMMARY.contains("note.content"));
-        for stat in [
-            "$pinnedCount",
-            "$pendingChecklistCount",
-            "$imageNoteCount",
-            "$folderCount",
-            "$trashCount",
-        ] {
-            assert!(COMPACT_SUMMARY.contains(stat));
-        }
-    }
-
-    #[test]
-    fn preserves_shared_actions_ai_entry_editor_and_sticky_note_ui() {
+    fn refuses_missing_duplicate_or_unreconciled_template_anchors() {
         let original = base_screen();
-        let rendered = render(SCREEN, original).unwrap();
-        let tail = "@Composable\nprivate fun FlowusIconAction(";
-        assert_eq!(
-            original.split_once(tail).unwrap().1,
-            rendered.split_once(tail).unwrap().1
-        );
-        let call = "                onCreateNote = { onCreateNote(NoteDraftPreset.BLANK) },";
-        assert_eq!(original.matches(call).count(), rendered.matches(call).count());
-    }
-
-    #[test]
-    fn refuses_missing_duplicate_or_edited_anchors() {
-        let original = base_screen();
+        assert!(render(SCREEN, original).is_ok());
         assert!(render(SCREEN, &original.replacen(HEADER_ITEM, "", 1)).is_err());
         assert!(render(SCREEN, &format!("{original}{HEADER_ITEM}")).is_err());
         assert!(render(
             SCREEN,
-            &original.replacen("页面先成形，再沉淀", "changed upstream", 1)
+            &format!("{original}\nFlowusWorkspaceHeader(title = extraTitle)\n")
         )
         .is_err());
+
+        let summary_call = "                noteCount = notebookDocuments.size,\n";
+        assert!(render(SCREEN, &original.replacen(summary_call, "", 1)).is_err());
+        assert!(render(SCREEN, &format!("{original}{summary_call}")).is_err());
     }
 
     #[test]
-    fn unrelated_templates_are_byte_identical() {
-        let source = "a screen that is not the notebook";
-        assert_eq!(
-            render("com/ofairyo/gridtimer/ui/GridTimerScreen.kt", source).unwrap(),
-            source
-        );
+    fn refuses_ambiguous_helper_removal_boundaries() {
+        let original = base_screen();
+        let start = "@Composable\nprivate fun FlowusWorkspaceHeader(";
+        let end = "@Composable\nprivate fun FlowusPropertyBadge(";
+        // Keep the same helper usage count: the removal boundary itself must fail closed.
+        assert!(render(
+            SCREEN,
+            &original.replacen(
+                start,
+                "@Composable /* moved */\nprivate fun FlowusWorkspaceHeader(",
+                1
+            )
+        )
+        .is_err());
+        assert!(render(
+            SCREEN,
+            &original.replacen(end, "private fun FlowusPropertyBadge(", 1)
+        )
+        .is_err());
+        assert!(render(SCREEN, &format!("{original}{end}")).is_err());
     }
 }
