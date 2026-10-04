@@ -1,3 +1,4 @@
+# v0.0.24 - Require legal scan request settlement and retry business acceptance.
 # v0.0.23 - Require current-document loading and parenthesized formula business acceptance.
 # v0.0.22 - Freeze offline formula assets and verify Android answer rendering.
 # v0.0.21 - Gate usable AI request boundaries and safe sync failure tests.
@@ -36,7 +37,7 @@ function Write-TaskJson([string]$Name, $Value) {
     [IO.File]::WriteAllText((Join-Path $taskEvidence $Name), ($Value | ConvertTo-Json -Depth 30), [Text.UTF8Encoding]::new($false))
 }
 function Get-TaskInputs {
-    $paths = @('app\build.gradle','gradle.properties','settings.gradle','native\gridtimer_native\Cargo.toml','native\gridtimer_native\Cargo.lock','tools\android.ps1','tools\publish_android_note.ps1','tools\verify_android_math_mutation.ps1','tools\verify_android_markdown_loading_mutation.ps1') | ForEach-Object { Join-Path $taskRoot $_ }
+    $paths = @('app\build.gradle','gradle.properties','settings.gradle','native\gridtimer_native\Cargo.toml','native\gridtimer_native\Cargo.lock','tools\android.ps1','tools\publish_android_note.ps1','tools\verify_android_math_mutation.ps1','tools\verify_android_markdown_loading_mutation.ps1','tools\verify_legal_lifecycle_mutation.ps1') | ForEach-Object { Join-Path $taskRoot $_ }
     # Cargo gates timer_windows_client behind the desktop feature. Its private
     # desktop/ modules are not inputs to the Android library, generator or tests.
     # Shared library modules (including desktop_*.rs) remain in the snapshot.
@@ -131,6 +132,7 @@ try {
     $formatPaths += Join-Path $taskCrate 'src\android_ai_session.rs'
     $formatPaths += @('src\sourcegen\android_ai_workflow.rs','src\sourcegen\android_sync_failure.rs') | ForEach-Object { Join-Path $taskCrate $_ }
     $formatPaths += @('src\android_answer_render.rs','src\sourcegen\android_ai_answer_ui.rs') | ForEach-Object { Join-Path $taskCrate $_ }
+    $formatPaths += Join-Path $taskCrate 'src\sourcegen\legal_risk_ui_source.rs'
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
@@ -201,7 +203,8 @@ try {
     foreach ($suite in @(
         @{name='KnowledgeAiRequestBoundaryTest';package='ui';source='android_ai_workflow.rs'},
         @{name='UnboundSyncFailureTest';package='data';source='android_sync_failure.rs'},
-        @{name='AndroidMarkdownRenderBoundaryTest';package='ui';source='android_ai_answer_ui.rs'}
+        @{name='AndroidMarkdownRenderBoundaryTest';package='ui';source='android_ai_answer_ui.rs'},
+        @{name='LegalSendReadyTest';package='ui';source='legal_risk_ui_source.rs'}
     )) {
         $suiteSource = Get-Content -LiteralPath (Join-Path $taskCrate ('src\sourcegen\'+$suite.source)) -Raw
         $suiteBody = [regex]::Match($suiteSource, '(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;')
@@ -214,6 +217,12 @@ try {
             if($suiteExpected -lt 7){throw 'Current offline document loading boundary suite is incomplete'}
             foreach($testName in @('onlyExactCurrentMainDocumentCanLoadOffline','plainMarkdownNeedsItsDocumentAndBodyWithoutMathBootstrap','incompleteFormulaOrForeignDocumentCannotBecomeReady','explicitFailureCanRetryWithoutAcceptingOldCompletion')){
                 if(@($suiteResult.testsuite.testcase | Where-Object name -eq $testName).Count -ne 1){throw ('Current offline document business test is missing: '+$testName)}
+            }
+        }
+        if($suite.name -eq 'LegalSendReadyTest'){
+            if($suiteExpected -ne 13){throw 'Legal scan request lifecycle business suite must contain 13 tests'}
+            foreach($testName in @('emptyScanCannotSend','missingAiConfigurationCannotSend','invalidatedAnalysisSettlesWithoutPublishingAndAllowsRetry','invalidatedPreparationCannotOverlapItsReplacement','duplicateClicksAndLateFinallyCannotReleaseAnotherWorker','closeRejectsLatePublicationCleanupAndNewRequests','invalidationDuringSuspendedIoStillClearsBusyInFinally','oldWorkspaceCannotReleaseNewWorkspaceRequest')){
+                if(@($suiteResult.testsuite.testcase | Where-Object name -eq $testName).Count -ne 1){throw ('Legal scan lifecycle business test is missing: '+$testName)}
             }
         }
         Copy-Item -LiteralPath $suitePath -Destination (Join-Path $taskEvidence ($suite.name+'.xml')) -Force

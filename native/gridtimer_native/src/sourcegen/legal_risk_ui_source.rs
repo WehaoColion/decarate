@@ -5,8 +5,15 @@ pub const TEST_PATH: &str = "com/ofairyo/gridtimer/ui/LegalSendReadyTest.kt";
 pub const TEST_CONTENTS: &str = r####"package com.ofairyo.gridtimer.ui
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 class LegalSendReadyTest {
     private fun ready(
@@ -40,6 +47,123 @@ class LegalSendReadyTest {
 
     @Test fun completeCurrentPreviewCanSend() {
         assertTrue(ready())
+    }
+
+    @Test fun invalidatedAnalysisSettlesWithoutPublishingAndAllowsRetry() {
+        val state = LegalScanRequestBoundary()
+        val request = state.begin()!!
+        state.invalidate()
+        assertFalse(state.isCurrent(request))
+        assertNull(state.begin())
+        assertTrue(state.finish(request))
+        assertFalse(state.isCurrent(request))
+        assertNotNull(state.begin())
+    }
+
+    @Test fun invalidatedPreparationCannotOverlapItsReplacement() {
+        val state = LegalScanRequestBoundary()
+        val request = state.begin()!!
+        state.invalidate()
+        state.invalidate()
+        assertNull(state.begin())
+        assertFalse(state.canDiscardPreview())
+        assertTrue(state.finish(request))
+        assertTrue(state.canDiscardPreview())
+        assertNotNull(state.begin())
+    }
+
+    @Test fun successfulPreparationKeepsItsPreviewFresh() {
+        val state = LegalScanRequestBoundary()
+        val prepare = state.begin()!!
+        assertTrue(state.finish(prepare))
+        assertTrue(state.isCurrent(prepare))
+        assertTrue(state.isCurrent(state.current()))
+        val send = state.begin()!!
+        assertFalse(state.isCurrent(prepare))
+        assertTrue(state.isCurrent(send))
+    }
+
+    @Test fun duplicateClicksAndLateFinallyCannotReleaseAnotherWorker() {
+        val state = LegalScanRequestBoundary()
+        val old = state.begin()!!
+        assertNull(state.begin())
+        assertTrue(state.finish(old))
+        val next = state.begin()!!
+        assertFalse(state.finish(old))
+        assertNull(state.begin())
+        assertTrue(state.isCurrent(next))
+        assertTrue(state.finish(next))
+    }
+
+    @Test fun failedRequestCanSettleExactlyOnceAndRetry() {
+        val state = LegalScanRequestBoundary()
+        val request = state.begin()!!
+        // The same finally contract applies to native, JSON and storage failures.
+        assertTrue(state.finish(request))
+        assertFalse(state.finish(request))
+        assertNotNull(state.begin())
+    }
+
+    @Test fun discardIsBlockedUntilAnalysisOrCancellationActuallyFinishes() {
+        val state = LegalScanRequestBoundary()
+        assertTrue(state.canDiscardPreview())
+        val request = state.begin()!!
+        assertFalse(state.canDiscardPreview())
+        state.invalidate()
+        assertFalse(state.canDiscardPreview())
+        assertTrue(state.finish(request))
+        assertTrue(state.canDiscardPreview())
+    }
+
+    @Test fun closeRejectsLatePublicationCleanupAndNewRequests() {
+        val state = LegalScanRequestBoundary()
+        val request = state.begin()!!
+        state.close()
+        assertFalse(state.isCurrent(request))
+        assertFalse(state.finish(request))
+        assertFalse(state.canDiscardPreview())
+        assertNull(state.begin())
+    }
+
+    @Test fun invalidationDuringSuspendedIoStillClearsBusyInFinally() = runBlocking {
+        val state = LegalScanRequestBoundary()
+        val ticket = state.begin()!!
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var busy = true
+        var published = false
+        val worker = launch {
+            try {
+                withContext(NonCancellable) {
+                    entered.complete(Unit)
+                    release.await()
+                }
+                if (state.isCurrent(ticket)) published = true
+            } finally {
+                if (state.finish(ticket)) busy = false
+            }
+        }
+        entered.await()
+        state.invalidate()
+        assertTrue(busy)
+        assertNull(state.begin())
+        release.complete(Unit)
+        worker.join()
+        assertFalse(published)
+        assertFalse(busy)
+        assertNotNull(state.begin())
+    }
+
+    @Test fun oldWorkspaceCannotReleaseNewWorkspaceRequest() {
+        val oldWorkspace = LegalScanRequestBoundary()
+        val old = oldWorkspace.begin()!!
+        oldWorkspace.close()
+        val newWorkspace = LegalScanRequestBoundary()
+        val next = newWorkspace.begin()!!
+        assertFalse(oldWorkspace.finish(old))
+        assertNull(newWorkspace.begin())
+        assertTrue(newWorkspace.isCurrent(next))
+        assertTrue(newWorkspace.finish(next))
     }
 }
 "####;
@@ -108,7 +232,6 @@ import org.json.JSONObject
 import java.net.URI
 import java.text.DateFormat
 import java.util.Date
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 private val legalInputJson = Json { encodeDefaults = true }
@@ -130,6 +253,33 @@ internal fun legalSendReady(
     busy: Boolean
 ): Boolean = hasPreview && evidenceCount > 0 && apiConfigured && modelConfigured &&
     recipientValid && identityCurrent && !busy
+
+/** Freshness may expire before native IO finishes; only its owner releases the busy slot. */
+internal class LegalScanRequestBoundary {
+    private var generation = 0
+    private var pending: Int? = null
+    private var closed = false
+
+    @Synchronized fun begin(): Int? {
+        if (closed || pending != null) return null
+        return (++generation).also { pending = it }
+    }
+
+    // Preview/evidence callbacks remain current after preparation has finished.
+    @Synchronized fun current(): Int = generation
+    @Synchronized fun isCurrent(ticket: Int): Boolean = !closed && generation == ticket
+    @Synchronized fun invalidate() { generation++ }
+    @Synchronized fun canDiscardPreview(): Boolean = !closed && pending == null
+
+    /** Never use isCurrent here: an invalidated worker must still release its own slot. */
+    @Synchronized fun finish(ticket: Int): Boolean {
+        if (pending != ticket) return false
+        pending = null
+        return !closed
+    }
+
+    @Synchronized fun close() { closed = true; generation++ }
+}
 
 /** Separate from the finance overview pager. No upload starts before the send button. */
 @Composable
@@ -154,7 +304,9 @@ fun LegalRiskScreen(
     ).joinToString("\u0000")
     val latestAccountIdentity by rememberUpdatedState(accountIdentity)
     val latestAppData by rememberUpdatedState(appData)
-    val generation = remember(workspaceKey, accountIdentity) { AtomicInteger(0) }
+    val requests = remember(workspaceKey, accountIdentity) { LegalScanRequestBoundary() }
+    // A running session must remain cancellable after its preview has been invalidated.
+    val runningScanId = remember(workspaceKey, accountIdentity) { AtomicReference<String?>(null) }
     val preparingScanId = remember(workspaceKey, accountIdentity) { AtomicReference<String?>(null) }
     val unlocked = remember(workspaceKey, accountIdentity) { mutableStateMapOf<String, NoteEntry>() }
     val reports = remember(workspaceKey, accountIdentity) { mutableStateListOf<StoredLegalReport>() }
@@ -175,20 +327,23 @@ fun LegalRiskScreen(
     var unlockingId by remember(workspaceKey, accountIdentity) { mutableStateOf<String?>(null) }
 
     fun isCurrent(request: Int): Boolean =
-        generation.get() == request &&
+        requests.isCurrent(request) &&
             latestAccountIdentity == accountIdentity &&
             viewModel.currentWorkspaceKey() == workspaceKey
 
     fun cancelCurrentScan() {
-        preview?.scanId?.let(NativeOptimizerBridge::cancelLegalScan)
+        runningScanId.get()?.let(NativeOptimizerBridge::cancelLegalScan)
         cancelling = running
     }
 
     DisposableEffect(workspaceKey, accountIdentity) {
         onDispose {
-            generation.incrementAndGet()
-            preview?.scanId?.let(NativeOptimizerBridge::cancelLegalScan)
-            if (!running) preview?.scanId?.let(NativeOptimizerBridge::closeLegalScan)
+            requests.close()
+            // Native workers retain an Arc; closing removes the map entry and cancels
+            // future batches even if the coroutine was disposed before it started.
+            val activeScanId = runningScanId.getAndSet(null)
+            activeScanId?.let(NativeOptimizerBridge::closeLegalScan)
+            preview?.scanId?.takeIf { it != activeScanId }?.let(NativeOptimizerBridge::closeLegalScan)
             preparingScanId.getAndSet(null)?.let(NativeOptimizerBridge::closeLegalScan)
             unlocked.keys.toList().forEach { noteId ->
                 viewModel.lockEncryptedNote(noteId, workspaceKey)
@@ -212,25 +367,29 @@ fun LegalRiskScreen(
 
     LaunchedEffect(appData, workspaceKey, accountIdentity) {
         if (preparingData != null && preparingData != appData) {
-            generation.incrementAndGet()
+            requests.invalidate()
             preparingScanId.getAndSet(null)?.let(NativeOptimizerBridge::closeLegalScan)
-            preparing = false
+            // Keep preparing=true until the old worker's finally block settles.
             preparingData = null
-            message = "资料已更新，请重新准备扫描。"
+            message = "资料已更新，正在结束本次准备；结束后请重新扫描。"
         }
         val captured = preview?.capturedData
         if (captured != null && captured != appData) {
-            generation.incrementAndGet()
+            requests.invalidate()
             cancelCurrentScan()
             if (!running) preview?.scanId?.let(NativeOptimizerBridge::closeLegalScan)
             preview = null
-            message = "资料已更新，请重新准备扫描。"
+            showContent = false
+            openedEvidence = null
+            evidenceLoading = false
+            message = if (running) "资料已更新，正在停止后续请求；结束后请重新扫描。"
+                else "资料已更新，请重新准备扫描。"
         }
     }
 
     fun prepare() {
-        if (preparing || running || viewModel.currentWorkspaceKey() != workspaceKey) return
-        val request = generation.incrementAndGet()
+        if (preparing || running || cancelling || viewModel.currentWorkspaceKey() != workspaceKey) return
+        val request = requests.begin() ?: return
         val captured = appData
         val unlockedSnapshot = unlocked.toMap()
         preview?.scanId?.let(NativeOptimizerBridge::closeLegalScan)
@@ -266,7 +425,7 @@ fun LegalRiskScreen(
                         val evidence = JSONArray(evidenceJson).let { array ->
                             (0 until array.length()).map { array.getJSONObject(it) }
                         }
-                        if (generation.get() != request) error("扫描已取消")
+                        if (!requests.isCurrent(request)) error("扫描已取消")
                         LegalPreview(scanId, manifest, evidence, captured)
                     } catch (error: Throwable) {
                         scanId?.let(NativeOptimizerBridge::closeLegalScan)
@@ -292,9 +451,14 @@ fun LegalRiskScreen(
             } catch (error: Throwable) {
                 if (isCurrent(request)) message = "准备失败：${error.message.orEmpty()}"
             } finally {
-                if (isCurrent(request)) {
-                    preparing = false
-                    preparingData = null
+                try {
+                    // Also owns a result discarded by withContext on cancellation.
+                    preparingScanId.getAndSet(null)?.let(NativeOptimizerBridge::closeLegalScan)
+                } finally {
+                    if (requests.finish(request)) {
+                        preparing = false
+                        preparingData = null
+                    }
                 }
             }
         }
@@ -310,11 +474,12 @@ fun LegalRiskScreen(
             modelConfigured = syncSession.aiModel.isNotBlank(),
             recipientValid = recipient != null,
             identityCurrent = latestAccountIdentity == accountIdentity &&
-                current?.capturedData == appData && viewModel.currentWorkspaceKey() == workspaceKey,
+                current?.capturedData == latestAppData && viewModel.currentWorkspaceKey() == workspaceKey,
             busy = preparing || running || cancelling
         )) return
         val currentScan = current ?: return
-        val request = generation.get()
+        val request = requests.begin() ?: return
+        runningScanId.set(currentScan.scanId)
         running = true
         cancelling = false
         message = "正在分批分析…"
@@ -337,11 +502,14 @@ fun LegalRiskScreen(
                     Triple(reportJson, id, LegalLocalStore.listReports(appContext, workspaceKey))
                 }
                 if (!isCurrent(request)) return@launch
-                reports.clear(); reports.addAll(loaded.third)
-                selectedReportId = loaded.second
-                pendingSyncCount = withContext(Dispatchers.IO) {
+                val pending = withContext(Dispatchers.IO) {
                     LegalLocalStore.pendingSyncCount(appContext, workspaceKey)
                 }
+                // Re-check after the final suspension before publishing or starting sync.
+                if (!isCurrent(request) || latestAppData != currentScan.capturedData) return@launch
+                reports.clear(); reports.addAll(loaded.third)
+                selectedReportId = loaded.second
+                pendingSyncCount = pending
                 val complete = JSONObject(loaded.first).optBoolean("completed", false)
                 message = if (complete) "分析已完成，报告已保存在本机。" else "分析未完成，已保存现有线索和未覆盖项。"
                 if (syncSession.loggedIn) viewModel.syncNow()
@@ -349,13 +517,17 @@ fun LegalRiskScreen(
             } catch (error: Throwable) {
                 if (isCurrent(request)) message = "分析未完成：${error.message.orEmpty()}"
             } finally {
-                withContext(NonCancellable + Dispatchers.IO) {
-                    NativeOptimizerBridge.closeLegalScan(currentScan.scanId)
-                }
-                if (isCurrent(request)) {
-                    preview = null
-                    running = false
-                    cancelling = false
+                try {
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        NativeOptimizerBridge.closeLegalScan(currentScan.scanId)
+                    }
+                } finally {
+                    runningScanId.compareAndSet(currentScan.scanId, null)
+                    if (requests.finish(request)) {
+                        if (preview?.scanId == currentScan.scanId) preview = null
+                        running = false
+                        cancelling = false
+                    }
                 }
             }
         }
@@ -375,7 +547,7 @@ fun LegalRiskScreen(
         modelConfigured = syncSession.aiModel.isNotBlank(),
         recipientValid = recipient != null,
         identityCurrent = latestAccountIdentity == accountIdentity &&
-            current?.capturedData == appData && viewModel.currentWorkspaceKey() == workspaceKey,
+            current?.capturedData == latestAppData && viewModel.currentWorkspaceKey() == workspaceKey,
         busy = preparing || running || cancelling
     )
     val selectedReport = reports.firstOrNull { it.id == selectedReportId }
@@ -428,7 +600,7 @@ fun LegalRiskScreen(
                     LegalSection {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(note.title.ifBlank { "未命名笔记" }, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { noteToUnlock = note; password = "" }) {
+                            TextButton(onClick = { noteToUnlock = note; password = "" }, enabled = !preparing && !cancelling) {
                                 Text(if (unlocked.containsKey(note.id)) "已解锁" else "解锁")
                             }
                         }
@@ -463,10 +635,17 @@ fun LegalRiskScreen(
                             Text("发送并分析")
                         }
                         OutlinedButton(onClick = {
-                            NativeOptimizerBridge.closeLegalScan(current.scanId)
-                            preview = null
-                            message = "已撤销本次预览。"
-                        }) { Text("撤销") }
+                            // Re-check in the action as a click may precede recomposition.
+                            if (requests.canDiscardPreview() && preview?.scanId == current.scanId) {
+                                requests.invalidate()
+                                NativeOptimizerBridge.closeLegalScan(current.scanId)
+                                preview = null
+                                showContent = false
+                                openedEvidence = null
+                                evidenceLoading = false
+                                message = "已撤销本次预览。"
+                            }
+                        }, enabled = requests.canDiscardPreview()) { Text("撤销") }
                     }
                     if (!sendEnabled && syncSession.aiApiKey.isBlank()) {
                         Text("请先在“我的”中配置 AI 密钥。")
@@ -526,7 +705,7 @@ fun LegalRiskScreen(
                             Text(item.optString("category"))
                             if (item.optBoolean("hasImage")) Text("图片将作为视觉输入发送")
                             TextButton(onClick = {
-                                val request = generation.get()
+                                val request = requests.current()
                                 evidenceLoading = true
                                 scope.launch {
                                     val loaded = withContext(Dispatchers.IO) {
@@ -577,7 +756,7 @@ fun LegalRiskScreen(
                 TextButton(
                     enabled = password.isNotBlank() && unlockingId == null,
                     onClick = {
-                        val request = generation.get()
+                        val request = requests.current()
                         val secret = password
                         password = ""
                         unlockingId = pendingNote.id
@@ -851,3 +1030,60 @@ private fun incompleteLegalReport(workspaceKey: String, manifest: JSONObject, re
         .put("errors", JSONArray().put(reason.ifBlank { "分析请求未完成" }))
         .toString()
 "####;
+
+#[cfg(test)]
+mod lifecycle_source_tests {
+    use super::CONTENTS;
+
+    #[test]
+    fn both_workers_acquire_and_settle_their_own_ticket() {
+        assert_eq!(
+            CONTENTS
+                .matches("val request = requests.begin() ?: return")
+                .count(),
+            2
+        );
+        assert_eq!(CONTENTS.matches("if (requests.finish(request))").count(), 2);
+        assert!(!CONTENTS.contains("generation.get()"));
+    }
+
+    #[test]
+    fn invalidation_does_not_unlock_the_preparation_slot_early() {
+        let effect = CONTENTS
+            .split("LaunchedEffect(appData, workspaceKey, accountIdentity)")
+            .nth(1)
+            .unwrap()
+            .split("    fun prepare()")
+            .next()
+            .unwrap();
+        assert!(!effect.contains("preparing = false"));
+        assert!(effect.contains("requests.invalidate()"));
+    }
+
+    #[test]
+    fn discard_and_disposal_respect_the_native_session_owner() {
+        assert!(CONTENTS.contains("enabled = requests.canDiscardPreview()"));
+        assert!(
+            CONTENTS.contains("requests.canDiscardPreview() && preview?.scanId == current.scanId")
+        );
+        assert!(
+            CONTENTS.contains("runningScanId.get()?.let(NativeOptimizerBridge::cancelLegalScan)")
+        );
+        assert!(CONTENTS.contains("activeScanId?.let(NativeOptimizerBridge::closeLegalScan)"));
+    }
+
+    #[test]
+    fn consent_and_latest_snapshot_guards_remain_in_the_generated_screen() {
+        let prepare = CONTENTS
+            .split("    fun prepare()")
+            .nth(1)
+            .unwrap()
+            .split("    fun send()")
+            .next()
+            .unwrap();
+        assert!(!prepare.contains("NativeOptimizerBridge.runLegalScan("));
+        assert!(CONTENTS.contains("Button(onClick = ::send, enabled = sendEnabled"));
+        assert!(CONTENTS.contains("current?.capturedData == latestAppData"));
+        assert!(CONTENTS.contains("latestAppData != currentScan.capturedData"));
+    }
+}
