@@ -1,3 +1,4 @@
+// v2.23.2.9 - Record visible legal actions and explicit send confirmation.
 // v2.23.2.8 - Record Android legal scan recovery and local verification scope.
 // v2.23.2.7 - Record the offline reader loading repair and formula whitespace handling.
 // v2.23.2.6 - Record offline formulas, Markdown reading and original text preservation.
@@ -11,7 +12,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.8";
+pub const LATEST_VERSION: &str = "2.23.2.9";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -41,6 +42,28 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.9",
+        updatedAt = "2026-10-04 22:30",
+        summary = "法律分析入口常显，整理资料、确认发送和重试更容易操作",
+        sections = listOf(
+            AndroidUpdateSection("入口与操作", listOf(
+                "风控总览提供全宽的“开始 AI 分析”入口，打开独立的全屏安全分析页。分析页与财务周期切换、总览翻页及悬浮导航分开，便于查看扫描范围和报告。",
+                "整理资料、发送、取消及重新尝试的操作放在资料列表上方。加密笔记、覆盖数量、遗漏项或旧报告很多时，不必滚到底部寻找主操作。准备中、分析中和取消中分别显示当前状态。",
+                "空资料、未配置AI、无效接收地址、资料变化及工作区变化分别给出可执行的提示，可按当前状态重新整理、进入AI设置或关闭后重新进入，不只显示一个不能点击的发送按钮。"
+            )),
+            AndroidUpdateSection("确认发送与资料保护", listOf(
+                "点击“发送并开始分析”先打开确认框，展示接收方、模型、可读记录数量、预计上传量和快照时间；可先查看待发送内容，确认前不会向模型发送扫描资料。",
+                "本次确认与扫描编号、完整接口地址、模型和密钥绑定，且只能使用一次。资料或配置发生变化、正在执行请求、切换账户或工作区时，旧确认不能继续发送；密钥仅用于本次内存核对，不写入报告。",
+                "继续保留资料失效后的请求结束恢复、停止后续批次、加密笔记逐条解锁、证据编号校验及本机报告保存。分析未完成时在主操作旁提示实际失败原因，下方保留完整错误和未覆盖项。"
+            )),
+            AndroidUpdateSection("验证与版本", listOf(
+                "新增操作状态和一次性发送授权的规格检查，执行改文案仍通过、移除关键授权判断必须失败的变异验证；通过原Rust源码生成器输出安卓界面，并核对正式版单元测试、lint及新安装包中的分析入口和确认动作。",
+                "本版为原正式签名的候选APK。本轮未连接手机，手机覆盖安装、固定操作区实际显示、连续点击与取消、真实DeepSeek法律报告生成仍待验收，不能以电脑编译成功替代这些结果。",
+                "安卓版本2.23.2.9，内部版本代码22278，沿用原包名和正式签名。Windows正式版本保持1.1.0.6。历史说明与原时间保留，本版继续支持点按复制、整版复制及历史版本入口，时间按北京时间精确到分钟。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.8",
         updatedAt = "2026-10-04 17:13",

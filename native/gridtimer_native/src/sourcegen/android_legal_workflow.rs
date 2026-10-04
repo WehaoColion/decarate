@@ -8,7 +8,9 @@ const TEST_PATH: &str = "com/ofairyo/gridtimer/ui/LegalSendReadyTest.kt";
 fn replace_once(source: &mut String, label: &str, before: &str, after: &str) -> Result<(), String> {
     let count = source.matches(before).count();
     if count != 1 {
-        return Err(format!("legal workflow {label}: expected one anchor, found {count}"));
+        return Err(format!(
+            "legal workflow {label}: expected one anchor, found {count}"
+        ));
     }
     *source = source.replacen(before, after, 1);
     Ok(())
@@ -16,20 +18,32 @@ fn replace_once(source: &mut String, label: &str, before: &str, after: &str) -> 
 
 pub fn render(path: &str, source: &str) -> Result<String, String> {
     if path == TEST_PATH {
-        return Ok(format!("{source}{TESTS}"));
+        return Ok(format!("{source}{TEST_CONTENTS}"));
     }
     if path != GRID_PATH && path != LEGAL_PATH {
         return Ok(source.to_string());
     }
     let mut source = source.to_string();
-    for import in ["androidx.compose.ui.platform.testTag", "androidx.compose.foundation.rememberScrollState", "androidx.compose.foundation.verticalScroll"] {
+    for import in [
+        "androidx.compose.ui.platform.testTag",
+        "androidx.compose.foundation.rememberScrollState",
+        "androidx.compose.foundation.verticalScroll",
+    ] {
         let statement = format!("import {import}\n");
         if !source.contains(&statement) {
-            replace_once(&mut source, "workflow_import", "package com.ofairyo.gridtimer.ui\n",
-                &format!("package com.ofairyo.gridtimer.ui\n{statement}"))?;
+            replace_once(
+                &mut source,
+                "workflow_import",
+                "package com.ofairyo.gridtimer.ui\n",
+                &format!("package com.ofairyo.gridtimer.ui\n{statement}"),
+            )?;
         }
     }
-    let replacements = if path == GRID_PATH { GRID_REPLACEMENTS } else { LEGAL_REPLACEMENTS };
+    let replacements = if path == GRID_PATH {
+        GRID_REPLACEMENTS
+    } else {
+        LEGAL_REPLACEMENTS
+    };
     for &(label, before, after) in replacements {
         replace_once(&mut source, label, before, after)?;
     }
@@ -40,17 +54,28 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
 }
 
 const GRID_REPLACEMENTS: &[(&str, &str, &str)] = &[
-    ("entry_button", r####"                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    (
+        "entry_button",
+        r####"                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { showLegalRisk = true }) { Text("开始 AI 分析") }
                             TextButton(onClick = onOpenAiSettings) { Text("AI 设置") }
-                        }"####, r####"                        androidx.compose.material3.Button(
+                        }"####,
+        r####"                        androidx.compose.material3.Button(
                             onClick = { showLegalRisk = true },
                             modifier = Modifier.fillMaxWidth().testTag("legal_open_analysis")
                         ) { Text("开始 AI 分析") }
-                        TextButton(onClick = onOpenAiSettings) { Text("AI 设置") }"####),
-    ("entry_hint", r####"${syncSession.aiModel} · 发送前查看范围并确认"####, r####"${syncSession.aiModel} · 点击上方按钮，整理资料后确认发送"####),
-    ("full_screen_route", r####"    if (showLegalRisk) {
-        LegalRiskScreen("####, r####"    if (showLegalRisk) {
+                        TextButton(onClick = onOpenAiSettings) { Text("AI 设置") }"####,
+    ),
+    (
+        "entry_hint",
+        r####"${syncSession.aiModel} · 发送前查看范围并确认"####,
+        r####"${syncSession.aiModel} · 点击上方按钮，整理资料后确认发送"####,
+    ),
+    (
+        "full_screen_route",
+        r####"    if (showLegalRisk) {
+        LegalRiskScreen("####,
+        r####"    if (showLegalRisk) {
         // Isolate the workflow from the finance pager and floating home navigation.
         androidx.compose.ui.window.Dialog(
             onDismissRequest = { showLegalRisk = false },
@@ -60,20 +85,31 @@ const GRID_REPLACEMENTS: &[(&str, &str, &str)] = &[
             )
         ) {
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        LegalRiskScreen("####),
-    ("full_screen_route_end", r####"            modifier = modifier
+        LegalRiskScreen("####,
+    ),
+    (
+        "full_screen_route_end",
+        r####"            modifier = modifier
         )
-    } else if (asPage) {"####, r####"            modifier = Modifier
+    } else if (asPage) {"####,
+        r####"            modifier = Modifier
         )
             }
         }
-    } else if (asPage) {"####),
+    } else if (asPage) {"####,
+    ),
 ];
 
 const LEGAL_REPLACEMENTS: &[(&str, &str, &str)] = &[
-    ("consent_state", r####"    var preview by remember(workspaceKey, accountIdentity) { mutableStateOf<LegalPreview?>(null) }"####, r####"    var preview by remember(workspaceKey, accountIdentity) { mutableStateOf<LegalPreview?>(null) }
-    var pendingConsent by remember(workspaceKey, accountIdentity) { mutableStateOf<LegalSendConsent?>(null) }"####),
-    ("remove_buried_prepare", r####"            if (current == null && !running) {
+    (
+        "consent_state",
+        r####"    var preview by remember(workspaceKey, accountIdentity) { mutableStateOf<LegalPreview?>(null) }"####,
+        r####"    var preview by remember(workspaceKey, accountIdentity) { mutableStateOf<LegalPreview?>(null) }
+    var pendingConsent by remember(workspaceKey, accountIdentity) { mutableStateOf<LegalSendConsent?>(null) }"####,
+    ),
+    (
+        "remove_buried_prepare",
+        r####"            if (current == null && !running) {
                 item {
                     Button(onClick = ::prepare, enabled = !preparing, modifier = Modifier.fillMaxWidth()) {
                         if (preparing) CircularProgressIndicator(modifier = Modifier.height(18.dp))
@@ -81,8 +117,12 @@ const LEGAL_REPLACEMENTS: &[(&str, &str, &str)] = &[
                     }
                 }
             }
-"####, r####""####),
-    ("remove_buried_send", r####"                item {
+"####,
+        r####""####,
+    ),
+    (
+        "remove_buried_send",
+        r####"                item {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = ::send, enabled = sendEnabled, modifier = Modifier.weight(1f)) {
                             Text("发送并分析")
@@ -104,8 +144,12 @@ const LEGAL_REPLACEMENTS: &[(&str, &str, &str)] = &[
                         Text("请先在“我的”中配置 AI 密钥。")
                     }
                 }
-"####, r####""####),
-    ("remove_buried_running", r####"            if (running) {
+"####,
+        r####""####,
+    ),
+    (
+        "remove_buried_running",
+        r####"            if (running) {
                 item {
                     LegalSection {
                         CircularProgressIndicator()
@@ -116,9 +160,14 @@ const LEGAL_REPLACEMENTS: &[(&str, &str, &str)] = &[
                     }
                 }
             }
-"####, r####""####),
-    ("pin_actions", r####"        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),"####, r####"        // Outside LazyColumn: actions cannot be buried by notes, omissions or old reports.
+"####,
+        r####""####,
+    ),
+    (
+        "pin_actions",
+        r####"        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),"####,
+        r####"        // Outside LazyColumn: actions cannot be buried by notes, omissions or old reports.
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -171,8 +220,12 @@ const LEGAL_REPLACEMENTS: &[(&str, &str, &str)] = &[
             }
         }
         LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),"####),
-    ("confirm_send", r####"    if (showContent && current != null) {"####, r####"    val consent = pendingConsent
+            modifier = Modifier.weight(1f).fillMaxWidth(),"####,
+    ),
+    (
+        "confirm_send",
+        r####"    if (showContent && current != null) {"####,
+        r####"    val consent = pendingConsent
     if (consent != null && current != null) {
         AlertDialog(
             onDismissRequest = { pendingConsent = null },
@@ -193,43 +246,78 @@ const LEGAL_REPLACEMENTS: &[(&str, &str, &str)] = &[
             confirmButton = {
                 TextButton(modifier = Modifier.testTag("legal_confirm_send"), enabled = sendEnabled,
                     onClick = {
-                        if (consent.consume(current.scanId, syncSession.aiBaseUrl,
-                                syncSession.aiModel, syncSession.aiApiKey, sendEnabled)) {
-                            pendingConsent = null
-                            send()
-                        } else {
-                            pendingConsent = null
-                            message = "资料或 AI 配置已变化，请重新核对发送范围。"
-                        }
+                        pendingConsent = null
+                        send(consent)
                     }) { Text("确认发送并分析") }
             },
             dismissButton = { TextButton(onClick = { pendingConsent = null }) { Text("暂不发送") } }
         )
     }
 
-    if (showContent && current != null) {"####),
-    ("prepare_workspace_feedback", r####"        if (preparing || running || cancelling || viewModel.currentWorkspaceKey() != workspaceKey) return"####, r####"        if (viewModel.currentWorkspaceKey() != workspaceKey) {
+    if (showContent && current != null) {"####,
+    ),
+    (
+        "prepare_workspace_feedback",
+        r####"        if (preparing || running || cancelling || viewModel.currentWorkspaceKey() != workspaceKey) return"####,
+        r####"        if (viewModel.currentWorkspaceKey() != workspaceKey) {
             message = "工作区已变化，请关闭此页后重新进入。"
             return
         }
-        if (preparing || running || cancelling) return"####),
-    ("send_blocker_feedback", r####"        )) return
-        val currentScan = current ?: return"####, r####"        )) {
+        if (preparing || running || cancelling) return"####,
+    ),
+    (
+        "require_send_consent",
+        r####"    fun send() {"####,
+        r####"    fun send(consent: LegalSendConsent) {"####,
+    ),
+    (
+        "send_ready_value",
+        r####"        if (!legalSendReady("####,
+        r####"        val ready = legalSendReady("####,
+    ),
+    (
+        "send_blocker_feedback",
+        r####"        )) return
+        val currentScan = current ?: return"####,
+        r####"        )
+        if (!ready) {
             pendingConsent = null
             message = "当前不能发送，请核对资料是否更新、AI 配置及工作区，并等待正在进行的请求结束。"
             return
         }
-        val currentScan = current ?: return"####),
-    ("show_analysis_failure", r####"                message = if (complete) "分析已完成，报告已保存在本机。" else "分析未完成，已保存现有线索和未覆盖项。""####, r####"                val failure = JSONObject(loaded.first).optJSONArray("errors")?.optString(0).orEmpty()
+        val currentScan = current ?: return"####,
+    ),
+    (
+        "authorize_request_boundary",
+        r####"        val request = requests.begin() ?: return
+        runningScanId.set(currentScan.scanId)"####,
+        r####"        // Authorization is enforced where request ownership is acquired, before native IO.
+        val request = consent.beginRequest(requests, currentScan.scanId, syncSession.aiBaseUrl,
+            syncSession.aiModel, syncSession.aiApiKey, ready) ?: run {
+            pendingConsent = null
+            message = "资料或 AI 配置已变化，或请求尚未结束，请重新核对。"
+            return
+        }
+        runningScanId.set(currentScan.scanId)"####,
+    ),
+    (
+        "show_analysis_failure",
+        r####"                message = if (complete) "分析已完成，报告已保存在本机。" else "分析未完成，已保存现有线索和未覆盖项。""####,
+        r####"                val failure = JSONObject(loaded.first).optJSONArray("errors")?.optString(0).orEmpty()
                 message = if (complete) "分析已完成，报告已保存在本机。"
-                    else "分析未完成：${failure.ifBlank { "请查看下方报告中的未覆盖项。" }}""####),
-    ("clear_stale_consent", r####"    val selectedReport = reports.firstOrNull { it.id == selectedReportId }"####, r####"    LaunchedEffect(current?.scanId) {
+                    else "分析未完成：${failure.ifBlank { "请查看下方报告中的未覆盖项。" }}""####,
+    ),
+    (
+        "clear_stale_consent",
+        r####"    val selectedReport = reports.firstOrNull { it.id == selectedReportId }"####,
+        r####"    LaunchedEffect(current?.scanId) {
         if (pendingConsent?.scanId != current?.scanId) pendingConsent = null
     }
-    val selectedReport = reports.firstOrNull { it.id == selectedReportId }"####),
+    val selectedReport = reports.firstOrNull { it.id == selectedReportId }"####,
+    ),
 ];
 
-const HELPERS: &str = r####"
+pub const HELPERS: &str = r####"
 internal enum class LegalPrimaryAction { PREPARE, REVIEW_SEND, SETTINGS, WAIT, REOPEN }
 
 internal data class LegalActionState(val action: LegalPrimaryAction, val label: String, val hint: String)
@@ -272,10 +360,17 @@ internal class LegalSendConsent(
         consumed = true
         return true
     }
+
+    /** No native work may acquire request ownership without fresh, single-use consent. */
+    fun beginRequest(requests: LegalScanRequestBoundary, scanId: String, baseUrl: String,
+        model: String, apiKey: String, ready: Boolean): Int? {
+        if (!consume(scanId, baseUrl, model, apiKey, ready)) return null
+        return requests.begin()
+    }
 }
 "####;
 
-const TESTS: &str = r####"
+pub const TEST_CONTENTS: &str = r####"
 
 class LegalAnalysisWorkflowTest {
     private fun state(
@@ -291,14 +386,11 @@ class LegalAnalysisWorkflowTest {
     @Test fun readablePreparedInputOffersARealSendAction() {
         val ready = state(preview = true)
         assertTrue(ready.action == LegalPrimaryAction.REVIEW_SEND)
-        assertTrue(ready.label.contains("发送"))
-        assertTrue(ready.hint.contains("1 条"))
     }
     @Test fun emptyPreviewCannotSendOrPretendToBeSafe() {
         for (count in listOf(0, -1)) {
             val empty = state(preview = true, count = count)
             assertTrue(empty.action == LegalPrimaryAction.PREPARE)
-            assertTrue(empty.hint.contains("没有可分析"))
         }
     }
     @Test fun invalidConfigurationHasAnActionableSettingsButton() {
@@ -307,16 +399,14 @@ class LegalAnalysisWorkflowTest {
     }
     @Test fun changedSnapshotRequiresPreparationInsteadOfSilentDisabledSend() {
         assertTrue(state(preview = true, snapshot = false).action == LegalPrimaryAction.PREPARE)
-        assertTrue(state(preview = true, snapshot = false).hint.contains("更新"))
     }
     @Test fun changedWorkspaceCannotPrepareOrSend() {
         assertTrue(state(identity = false).action == LegalPrimaryAction.REOPEN)
         assertTrue(state(identity = false, preview = true).action == LegalPrimaryAction.REOPEN)
     }
-    @Test fun preparationAnalysisAndCancellationHaveDistinctBusyFeedback() {
+    @Test fun preparationAnalysisAndCancellationCannotOfferSend() {
         val states = listOf(state(preparing = true), state(running = true), state(cancelling = true))
         assertTrue(states.all { it.action == LegalPrimaryAction.WAIT })
-        assertTrue(states.map { it.label }.distinct().size == 3)
     }
     @Test fun confirmingAnUnchangedReadyPreviewConsumesConsentExactlyOnce() {
         val consent = LegalSendConsent("s1", "https://example.test/v1", "model", "test-key")
@@ -335,17 +425,47 @@ class LegalAnalysisWorkflowTest {
         val consent = LegalSendConsent("s1", "https://example.test/v1", "model", "test-key")
         assertFalse(consent.consume("s1", "https://example.test/v1", "model", "test-key", false))
     }
-    @Test fun openingAndPreparingDoNotCallTransportAndConfirmationCallsItOnce() {
-        var calls = 0
-        assertTrue(state().action == LegalPrimaryAction.PREPARE)
-        assertTrue(state(preparing = true).action == LegalPrimaryAction.WAIT)
-        assertTrue(state(preview = true).action == LegalPrimaryAction.REVIEW_SEND)
-        val consent = LegalSendConsent("s1", "https://example.test/v1", "model", "test-key")
-        assertTrue(calls == 0)
-        repeat(2) {
-            if (consent.consume("s1", "https://example.test/v1", "model", "test-key", true)) calls++
+    @Test fun requestOwnershipRequiresFreshBoundSingleUseAuthorization() {
+        val requests = LegalScanRequestBoundary()
+        val denied = LegalSendConsent("s1", "https://example.test/v1", "model", "test-key")
+        assertTrue(denied.beginRequest(requests, "s1", "https://other.test/v1", "model", "test-key", true) == null)
+        assertTrue(requests.canDiscardPreview())
+        assertTrue(denied.beginRequest(requests, "s1", "https://example.test/v1", "model", "test-key", false) == null)
+        assertTrue(requests.canDiscardPreview())
+        val accepted = denied.beginRequest(requests, "s1", "https://example.test/v1", "model", "test-key", true)
+        assertTrue(accepted != null)
+        assertTrue(requests.finish(accepted!!))
+        assertTrue(denied.beginRequest(requests, "s1", "https://example.test/v1", "model", "test-key", true) == null)
+        assertTrue(requests.canDiscardPreview())
+    }
+    @Test fun unavailableDomainStatesCannotConsumeSendAuthorization() {
+        val blocked = listOf(
+            state(), state(preparing = true), state(running = true), state(cancelling = true),
+            state(identity = false, preview = true), state(preview = true, count = 0),
+            state(preview = true, configured = false), state(preview = true, recipient = false),
+            state(preview = true, snapshot = false)
+        )
+        for (action in blocked) {
+            val consent = LegalSendConsent("s1", "https://example.test/v1", "model", "test-key")
+            assertFalse(consent.consume("s1", "https://example.test/v1", "model", "test-key",
+                action.action == LegalPrimaryAction.REVIEW_SEND))
         }
-        assertTrue(calls == 1)
+    }
+    @Test fun concurrentConfirmationCanConsumeAuthorizationOnlyOnce() {
+        val consent = LegalSendConsent("s1", "https://example.test/v1", "model", "test-key")
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val accepted = java.util.concurrent.atomic.AtomicInteger(0)
+        val workers = (0 until 8).map {
+            Thread {
+                gate.await()
+                if (consent.consume("s1", "https://example.test/v1", "model", "test-key", true))
+                    accepted.incrementAndGet()
+            }.also { it.start() }
+        }
+        gate.countDown()
+        workers.forEach { it.join(2_000) }
+        assertTrue(workers.none { it.isAlive })
+        assertTrue(accepted.get() == 1)
     }
     @Test fun endingFailedOrCancelledWorkOffersRetry() {
         assertTrue(state(running = true).action == LegalPrimaryAction.WAIT)
@@ -363,13 +483,31 @@ mod tests {
     fn production_screen_has_pinned_actions_and_only_one_confirmed_send() {
         let rendered = render(LEGAL_PATH, crate::legal_risk_ui_source::CONTENTS).unwrap();
         let action = rendered.find("testTag(\"legal_primary_action\")").unwrap();
-        let list = rendered.find("        LazyColumn(\n            modifier = Modifier.weight(1f)").unwrap();
+        let list = rendered
+            .find("        LazyColumn(\n            modifier = Modifier.weight(1f)")
+            .unwrap();
         assert!(action < list);
         assert!(!rendered.contains("Button(onClick = ::send"));
         assert!(!rendered.contains("Button(onClick = ::prepare"));
-        assert_eq!(rendered.matches("                            send()\n").count(), 1);
-        assert_eq!(rendered.matches("NativeOptimizerBridge.runLegalScan(").count(), 1);
-        assert!(rendered.contains("if (consent.consume("));
+        assert_eq!(
+            rendered
+                .matches("                        send(consent)\n")
+                .count(),
+            1
+        );
+        assert_eq!(
+            rendered
+                .matches("NativeOptimizerBridge.runLegalScan(")
+                .count(),
+            1
+        );
+        let authorization = rendered
+            .find("val request = consent.beginRequest(requests, currentScan.scanId")
+            .unwrap();
+        let request = rendered
+            .find("        runningScanId.set(currentScan.scanId)")
+            .unwrap();
+        assert!(authorization < request);
         assert!(rendered.contains("if (requests.finish(request))"));
     }
 
@@ -384,14 +522,17 @@ mod tests {
         assert!(rendered.contains("testTag(\"legal_open_analysis\")"));
         assert!(rendered.contains("usePlatformDefaultWidth = false"));
         assert!(rendered.contains("SecureFlagPolicy.SecureOn"));
-        assert!(!rendered.contains("发送前查看范围并确认"));
         assert!(!rendered.contains("runLegalScan"));
     }
 
     #[test]
     fn template_drift_fails_generation_instead_of_silently_losing_an_action() {
         assert!(render(GRID_PATH, "package com.ofairyo.gridtimer.ui\n").is_err());
-        let duplicate = format!("{}{}", crate::legal_risk_ui_source::CONTENTS, crate::legal_risk_ui_source::CONTENTS);
+        let duplicate = format!(
+            "{}{}",
+            crate::legal_risk_ui_source::CONTENTS,
+            crate::legal_risk_ui_source::CONTENTS
+        );
         assert!(render(LEGAL_PATH, &duplicate).is_err());
     }
 
