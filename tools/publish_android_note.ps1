@@ -1,3 +1,4 @@
+# v2.23.2.10 - Gate document caret and knowledge header mutations and packaged editor policies.
 # v2.23.2.9 - Bind legal workflow authorization mutations and generated actions to the signed APK.
 # v2.23.2.8 - Gate legal request lifecycle tests, settlement mutation and packaged boundary.
 # v2.23.2.7 - Gate current-document loading, formula completion and actual loading mutations.
@@ -298,6 +299,40 @@ if([version]$releaseVersion -ge [version]'2.23.2.9'){
     }
     $legalWorkflowAcceptance=[ordered]@{businessTests=$workflowTestNames.Count;mutationPassed=$true;sourceSha256=$workflowSource[0].sha256;verifierSha256=$workflowVerifier[0].sha256;baseSourceSha256=$workflowBaseSource[0].sha256;explicitConfirmationVerified=$true;generatedSourceConnected=$true;hostOnly=$true;deviceVerified=$false}
 }
+if([version]$releaseVersion -ge [version]'2.23.2.10'){
+    if(!$build.documentIntegration.passed -or !$build.documentIntegration.policyConnectedToRealEditor -or !$build.documentIntegration.workspaceAndNoteFocusLifetime -or !$build.documentIntegration.compactHeaderPresent -or $build.aiWorkflowTests.DocumentCaretPolicyTest -ne 15){throw 'Generated document integration or caret domain acceptance missing'}
+    foreach($entry in $build.documentIntegration.generatedFiles){if((Get-FileHash -LiteralPath (Join-Path $releaseRoot $entry.path)).Hash.ToLowerInvariant() -cne $entry.sha256){throw 'Generated document integration changed after build'}}
+    foreach($definition in @(
+        @{folder='document_caret_mutation';source='native/gridtimer_native/src/sourcegen/android_document_caret.rs';verifier='tools/verify_document_caret_mutation.ps1';tests=15;cases=5;critical=@{removed_layout_identity='equalLengthReplacementDoesNotUseAnOldLayout';removed_visible_block_guard='visibleBlockNeverJumpsToItsTop'}},
+        @{folder='knowledge_header_mutation';source='native/gridtimer_native/src/sourcegen/android_knowledge_header.rs';verifier='tools/verify_knowledge_header_mutation.ps1';tests=2;cases=4;critical=@{missing_header_usage_guard='refuses_missing_duplicate_or_unreconciled_template_anchors'}}
+    )){
+        $receiptPath=Join-Path $evidence ($definition.folder+'/receipt.json')
+        $record=Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+        $sourceEntry=@($provenance.files | Where-Object path -eq $definition.source)
+        $verifierEntry=@($provenance.files | Where-Object path -eq $definition.verifier)
+        if(!$record.passed -or !$record.productionUnchanged -or $record.version -ne $releaseVersion -or $sourceEntry.Count -ne 1 -or $verifierEntry.Count -ne 1 -or $record.sourcePath -ne $definition.source -or $record.sourceSha256Before -cne $sourceEntry[0].sha256 -or $record.sourceSha256After -cne $sourceEntry[0].sha256 -or $record.verifierPath -ne $definition.verifier -or $record.verifierSha256 -cne $verifierEntry[0].sha256 -or $record.tests -ne $definition.tests -or $record.cases.Count -ne $definition.cases -or @($record.cases | Where-Object {!$_.passed -or $_.compileExit -ne 0 -or !$_.allBusinessTestsObserved}).Count){throw ('Document mutation acceptance does not bind the built source: '+$definition.folder)}
+        foreach($case in $record.cases){
+            if($null -eq $case.testExit){throw 'Document mutation has no actual test result'}
+            if($definition.critical.ContainsKey($case.name)){
+                if($case.testExit -eq 0 -or !$case.requiredFailureObserved -or !$case.requiredFailureTest.EndsWith($definition.critical[$case.name])){throw 'Document mutation failed to reject the required state guard removal'}
+            } elseif($case.name -notin @('baseline','cosmetic','restored') -or $case.testExit -ne 0){throw 'Document cosmetic or baseline business acceptance failed'}
+        }
+        if($definition.folder -eq 'knowledge_header_mutation'){
+            foreach($case in $record.cases){
+                foreach($log in @(@{suffix='_compile.jsonl';hash=$case.compileJsonSha256},@{suffix='_compile.log';hash=$case.compileLogSha256},@{suffix='_tests.log';hash=$case.testLogSha256})){
+                    if((Get-FileHash -LiteralPath (Join-Path $evidence ($definition.folder+'/'+$case.name+$log.suffix))).Hash.ToLowerInvariant() -cne $log.hash){throw 'Header mutation evidence changed'}
+                }
+            }
+        }
+        if($definition.folder -eq 'document_caret_mutation'){
+            foreach($case in $record.cases){
+                foreach($log in @(@{name='compile';hash=$case.compileLogSha256},@{name='tests';hash=$case.testLogSha256})){
+                    if((Get-FileHash -LiteralPath (Join-Path $evidence ($definition.folder+'/'+$case.name+'/'+$log.name+'.log'))).Hash.ToLowerInvariant() -cne $log.hash){throw 'Caret mutation evidence changed'}
+                }
+            }
+        }
+    }
+}
 $hash=(Get-FileHash -LiteralPath $apk).Hash.ToLowerInvariant()
 if($hash -ne $build.apkSha256){throw 'APK changed after verification'}
 $publishedApk=@($manifest.files | Where-Object role -eq 'apk')
@@ -374,6 +409,7 @@ try {
     }
     if($legalAcceptance){$dexNames['LegalScanRequestBoundary']=$false;$dexNames['LegalRiskScreenKt']=$false}
     if($legalWorkflowAcceptance){$dexNames['LegalSendConsent']=$false;$dexNames['LegalPrimaryAction']=$false;$dexNames['LegalActionState']=$false}
+    if([version]$releaseVersion -ge [version]'2.23.2.10'){$dexNames['DocumentCaretPolicyKt']=$false;$dexNames['DocumentCaretVisibilityKt']=$false;$dexNames['DocumentCaretVisibility']=$false;$dexNames['NoteDocumentEditorKt']=$false}
     try {
         foreach($abi in $abis){
             $entry=$zip.GetEntry("lib/$abi/libgridtimer_native.so")

@@ -1,3 +1,4 @@
+// v2.23.2.10 - Record compact knowledge header and document caret visibility.
 // v2.23.2.9 - Record visible legal actions and explicit send confirmation.
 // v2.23.2.8 - Record Android legal scan recovery and local verification scope.
 // v2.23.2.7 - Record the offline reader loading repair and formula whitespace handling.
@@ -12,7 +13,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.9";
+pub const LATEST_VERSION: &str = "2.23.2.10";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -42,6 +43,28 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.10",
+        updatedAt = "2026-10-05 04:12",
+        summary = "精简知识页顶部信息，修复文档换行后的光标与键盘避让",
+        sections = listOf(
+            AndroidUpdateSection("知识列表顶部", listOf(
+                "将原先分开的空间说明和文档统计整理为一个顶部区域，减少重复标题、计数与说明占用的高度。保留文档总数、当前筛选结果数、新建文档、回收站和知识库入口，回收站单独统计已删除文档。",
+                "顶部操作允许随宽度换行，不使用固定高度截断按钮。文档列表保留标题、更新时间、置顶和任务等标识及一行正文摘要；加密文档保持锁定提示，不为摘要读取明文。",
+                "筛选和排序继续使用原有状态与数据范围，进入回收站不会把回收站计数混入正常文档数量。本版不改变文档内容、目录、历史版本及保存格式。"
+            )),
+            AndroidUpdateSection("文档编辑与键盘", listOf(
+                "换行创建的新文本块尚未出现在可见列表时，先定位该块，等待下一帧布局后再请求焦点。正在编辑的长段落已经可见时，不滚回段落开头，仅将当前光标附近移到可见范围。",
+                "以键盘和工具栏避让后的实际编辑视口计算光标可见范围，不重复扣除键盘高度。文本、选择位置、布局结果、键盘高度及列表高度变化时重新核对；旧文本对应的布局不能触发新的光标滚动。",
+                "光标偏移按Android文本的UTF-16单位处理，中文、表情和组合输入沿用原输入状态。延后焦点请求与光标滚动同时绑定工作区、文档及文本块，切换文档或工作区会取消旧请求。手动浏览不因列表滚动反复跳回光标。"
+            )),
+            AndroidUpdateSection("版本与验收范围", listOf(
+                "沿用Rust源码生成安卓界面及桥接代码，执行核心逻辑、生成器、正式版单元测试与lint，并核验原正式签名、包名、三种原生架构和新安装包内容。光标策略检查覆盖过期布局、失焦、非法坐标、UTF-16、长段落和小视口，并验证改变显示文案不影响测试、删除关键布局判断会被测试拒绝。",
+                "本版为正式签名候选APK。本轮没有连接手机，覆盖安装、实际屏幕与大字号排版、连续换行、中文输入、不同键盘、手动滚动、切换工作区后的焦点取消尚待真机验收，电脑编译与策略测试不能代替这些操作结果。",
+                "安卓版本2.23.2.10，内部版本代码22279，沿用com.ofairyo.gridtimer包名和原正式证书。Windows正式版本保持1.1.0.7。以前的更新内容和原时间继续保留，本版说明支持点按复制、整版复制及历史入口，更新时间以北京时间精确到分钟。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.9",
         updatedAt = "2026-10-04 22:30",
