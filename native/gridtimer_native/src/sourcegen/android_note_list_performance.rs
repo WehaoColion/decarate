@@ -1,4 +1,7 @@
 // v2.22.49.5 Android - Filter notes without account serialization or unused title parsing.
+#[path = "android_knowledge_header.rs"]
+mod android_knowledge_header;
+
 pub fn render(path: &str, source: &str) -> Result<String, String> {
     let mut result = source.to_owned();
     if path.ends_with("/Models.kt") {
@@ -30,7 +33,7 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
             result = result.replacen(before, after, 1);
         }
     }
-    Ok(result)
+    android_knowledge_header::render(path, &result)
 }
 
 fn replace_section(
