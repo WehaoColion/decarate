@@ -1037,15 +1037,25 @@ mod lifecycle_source_tests {
 
     #[test]
     fn both_workers_acquire_and_settle_their_own_ticket() {
-        assert_eq!(CONTENTS.matches("val request = requests.begin() ?: return").count(), 2);
+        assert_eq!(
+            CONTENTS
+                .matches("val request = requests.begin() ?: return")
+                .count(),
+            2
+        );
         assert_eq!(CONTENTS.matches("if (requests.finish(request))").count(), 2);
         assert!(!CONTENTS.contains("generation.get()"));
     }
 
     #[test]
     fn invalidation_does_not_unlock_the_preparation_slot_early() {
-        let effect = CONTENTS.split("LaunchedEffect(appData, workspaceKey, accountIdentity)")
-            .nth(1).unwrap().split("    fun prepare()").next().unwrap();
+        let effect = CONTENTS
+            .split("LaunchedEffect(appData, workspaceKey, accountIdentity)")
+            .nth(1)
+            .unwrap()
+            .split("    fun prepare()")
+            .next()
+            .unwrap();
         assert!(!effect.contains("preparing = false"));
         assert!(effect.contains("requests.invalidate()"));
     }
@@ -1053,15 +1063,24 @@ mod lifecycle_source_tests {
     #[test]
     fn discard_and_disposal_respect_the_native_session_owner() {
         assert!(CONTENTS.contains("enabled = requests.canDiscardPreview()"));
-        assert!(CONTENTS.contains("requests.canDiscardPreview() && preview?.scanId == current.scanId"));
-        assert!(CONTENTS.contains("runningScanId.get()?.let(NativeOptimizerBridge::cancelLegalScan)"));
+        assert!(
+            CONTENTS.contains("requests.canDiscardPreview() && preview?.scanId == current.scanId")
+        );
+        assert!(
+            CONTENTS.contains("runningScanId.get()?.let(NativeOptimizerBridge::cancelLegalScan)")
+        );
         assert!(CONTENTS.contains("activeScanId?.let(NativeOptimizerBridge::closeLegalScan)"));
     }
 
     #[test]
     fn consent_and_latest_snapshot_guards_remain_in_the_generated_screen() {
-        let prepare = CONTENTS.split("    fun prepare()").nth(1).unwrap()
-            .split("    fun send()").next().unwrap();
+        let prepare = CONTENTS
+            .split("    fun prepare()")
+            .nth(1)
+            .unwrap()
+            .split("    fun send()")
+            .next()
+            .unwrap();
         assert!(!prepare.contains("NativeOptimizerBridge.runLegalScan("));
         assert!(CONTENTS.contains("Button(onClick = ::send, enabled = sendEnabled"));
         assert!(CONTENTS.contains("current?.capturedData == latestAppData"));

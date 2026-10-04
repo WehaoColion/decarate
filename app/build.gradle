@@ -1,3 +1,4 @@
+// v2.23.2.8 - Recover invalidated Android legal analysis and preparation requests.
 // v2.23.2.7 - Repair offline document loading and formula whitespace parsing.
 // v2.23.2.5 - Separate direct AI questions from knowledge-source answers.
 // v2.23.2.2 - Add DeepSeek configuration and explicit capability checks.
@@ -136,8 +137,8 @@ android {
         applicationId 'com.ofairyo.gridtimer'
         minSdk 26
         targetSdk 34
-        versionCode 22276
-        versionName '2.23.2.7'
+        versionCode 22277
+        versionName '2.23.2.8'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         manifestPlaceholders.xiaomiAppId = ''
         manifestPlaceholders.xiaomiBuildTypeDebug = 'true'

@@ -1,3 +1,4 @@
+// v2.23.2.8 Android - Recover invalidated legal scans without releasing newer requests.
 // v2.23.2.7 Android - Repair offline document loading and formula whitespace parsing.
 // v2.23.2.5 Android - Separate direct AI questions from knowledge-source answers.
 // v2.23.2.3 Android - Show usable AI entry points and reject incomplete answers.
@@ -80,8 +81,8 @@
 
 pub const WINDOWS_APP_VERSION: &str = "1.1.0.6";
 pub const SYNC_SUPERVISOR_MUTEX_NAME: &str = r"Local\GridTimerSyncSupervisor-v1";
-pub const ANDROID_APP_VERSION: &str = "2.23.2.7";
-pub const ANDROID_VERSION_CODE: i32 = 22276;
+pub const ANDROID_APP_VERSION: &str = "2.23.2.8";
+pub const ANDROID_VERSION_CODE: i32 = 22277;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductIdentity {

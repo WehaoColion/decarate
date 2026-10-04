@@ -1,3 +1,4 @@
+# v2.23.2.8 - Gate legal request lifecycle tests, settlement mutation and packaged boundary.
 # v2.23.2.7 - Gate current-document loading, formula completion and actual loading mutations.
 # v2.23.2.6 - Verify offline formula assets, safe rendering and renderer boundaries.
 # v2.23.2.5 - Require direct AI isolation, knowledge source guards and native bridge.
@@ -29,6 +30,7 @@ $provenance=Get-Content (Join-Path $evidence 'android_source_provenance.json') -
 if($provenance.sha256 -ne $build.sourceSnapshotSha256){throw 'Source snapshot mismatch'}
 $aiAcceptance=$null
 $mathAcceptance=$null
+$legalAcceptance=$null
 if($releaseVersion -eq '2.23.2'){
     if($build.knowledgeRecoveryTests.NoteCollectionRecoveryTest -ne 6 -or $build.knowledgeRecoveryTests.KnowledgeFilterStateTest -ne 4){throw 'Knowledge recovery business acceptance missing'}
     $mutation=Get-Content -LiteralPath (Join-Path $evidence 'knowledge_recovery_mutation/mutation_result.json') -Raw | ConvertFrom-Json
@@ -195,6 +197,48 @@ if([version]$releaseVersion -ge [version]'2.23.2.7'){
     $mathAcceptance['loadingSourceSha256']=$loadingSource[0].sha256
     $mathAcceptance['loadingVerifierSha256']=$loadingVerifier[0].sha256
 }
+if([version]$releaseVersion -ge [version]'2.23.2.8'){
+    $legalSourcePath='native/gridtimer_native/src/sourcegen/legal_risk_ui_source.rs'
+    $legalVerifierPath='tools/verify_legal_lifecycle_mutation.ps1'
+    $legalSource=@($provenance.files | Where-Object path -eq $legalSourcePath)
+    $legalVerifier=@($provenance.files | Where-Object path -eq $legalVerifierPath)
+    $legalMutation=Get-Content -LiteralPath (Join-Path $evidence 'legal_lifecycle_mutation/receipt.json') -Raw | ConvertFrom-Json
+    [xml]$legalTests=Get-Content -LiteralPath (Join-Path $evidence 'LegalSendReadyTest.xml') -Raw
+    if($build.aiWorkflowTests.LegalSendReadyTest -ne 13 -or [int]$legalTests.testsuite.tests -ne 13 -or [int]$legalTests.testsuite.failures -ne 0 -or [int]$legalTests.testsuite.errors -ne 0 -or [int]$legalTests.testsuite.skipped -ne 0){throw 'Legal lifecycle formal business tests are incomplete or failed'}
+    if($legalSource.Count -ne 1 -or $legalVerifier.Count -ne 1 -or !$legalMutation.passed -or !$legalMutation.productionUnchanged -or $legalMutation.version -ne $releaseVersion -or $legalMutation.sourcePath -ne $legalSourcePath -or $legalMutation.sourceSha256Before -cne $legalSource[0].sha256 -or $legalMutation.sourceSha256After -cne $legalSource[0].sha256 -or $legalMutation.verifierPath -ne $legalVerifierPath -or $legalMutation.verifierSha256 -cne $legalVerifier[0].sha256 -or $legalMutation.tests -ne 13 -or $legalMutation.cases.Count -ne 4 -or @($legalMutation.cases | Where-Object {!$_.passed -or $_.compileExit -ne 0 -or !$_.allBusinessTestsObserved}).Count){throw 'Legal lifecycle mutation acceptance does not bind the final Android source'}
+    $legalActual=Get-Content -LiteralPath (Join-Path $releaseRoot $legalSourcePath) -Raw
+    $legalUi=[regex]::Match($legalActual, '(?s)pub const CONTENTS:\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+    $legalTestBody=[regex]::Match($legalActual, '(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+    if(!$legalUi.Success -or !$legalTestBody.Success){throw 'Legal Rust-owned UI or test literal is missing'}
+    $legalUiText=$legalUi.Groups['body'].Value.Replace("`r`n","`n")
+    $legalStart=$legalUiText.IndexOf('internal fun legalSendReady(')
+    $legalEnd=$legalUiText.IndexOf('/** Separate from the finance overview pager.')
+    if($legalStart -lt 0 -or $legalEnd -le $legalStart){throw 'Legal request helper boundaries are missing'}
+    $legalHelperText="package com.ofairyo.gridtimer.ui`n`n"+$legalUiText.Substring($legalStart,$legalEnd-$legalStart)
+    foreach($literal in @(@{text=$legalUiText;hash=$legalMutation.uiSha256},@{text=$legalTestBody.Groups['body'].Value.Replace("`r`n","`n");hash=$legalMutation.testsSha256},@{text=$legalHelperText;hash=$legalMutation.helperSha256})){
+        $actual=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($literal.text))).ToLowerInvariant()
+        if($actual -cne $literal.hash){throw 'Legal lifecycle mutation compiled a different helper, UI or test body'}
+    }
+    foreach($testName in $legalMutation.testNames){
+        if(@($legalTests.testsuite.testcase | Where-Object name -eq $testName).Count -ne 1){throw ('Legal lifecycle test absent from formal build: '+$testName)}
+    }
+    foreach($caseName in @('baseline','cosmetic','finish_generation_guard','restored')){
+        $case=@($legalMutation.cases | Where-Object name -eq $caseName)
+        if($case.Count -ne 1 -or $null -eq $case[0].testExit -or $case[0].testsSha256 -cne $legalMutation.testsSha256){throw ('Legal mutation case is missing or tests changed: '+$caseName)}
+        $compileLog=Join-Path $evidence ('legal_lifecycle_mutation/'+$caseName+'/compile.log')
+        $testLog=Join-Path $evidence ('legal_lifecycle_mutation/'+$caseName+'/tests.log')
+        if((Get-FileHash -LiteralPath $compileLog -Algorithm SHA256).Hash.ToLowerInvariant() -cne $case[0].compileLogSha256 -or (Get-FileHash -LiteralPath $testLog -Algorithm SHA256).Hash.ToLowerInvariant() -cne $case[0].testLogSha256){throw ('Legal mutation evidence changed: '+$caseName)}
+        $log=Get-Content -LiteralPath $testLog -Raw
+        if($caseName -eq 'finish_generation_guard'){
+            $required='invalidationDuringSuspendedIoStillClearsBusyInFinally'
+            if($case[0].expectedPass -or $case[0].testExit -eq 0 -or !$case[0].requiredFailureObserved -or $case[0].requiredFailureTest -ne $required -or !$log.Contains($required+'(com.ofairyo.gridtimer.ui.LegalSendReadyTest)') -or !$log.Contains('java.lang.AssertionError') -or !$log.Contains('Tests run: 13,') -or $case[0].helperSha256 -ceq $legalMutation.helperSha256 -or $case[0].uiSha256 -cne $legalMutation.uiSha256){throw 'The invalidated request settlement mutation did not fail its required business test'}
+        }else{
+            if(!$case[0].expectedPass -or $case[0].testExit -ne 0 -or !$log.Contains('OK (13 tests)') -or $case[0].helperSha256 -cne $legalMutation.helperSha256){throw ('Legal baseline, cosmetic or restored case failed: '+$caseName)}
+            if(($caseName -eq 'cosmetic' -and $case[0].uiSha256 -ceq $legalMutation.uiSha256) -or ($caseName -ne 'cosmetic' -and $case[0].uiSha256 -cne $legalMutation.uiSha256)){throw 'Legal cosmetic variant or restored UI identity is invalid'}
+        }
+    }
+    $legalAcceptance=[ordered]@{businessTests=13;mutationPassed=$true;sourceSha256=$legalSource[0].sha256;verifierSha256=$legalVerifier[0].sha256;hostOnly=$true;deviceVerified=$false}
+}
 $hash=(Get-FileHash -LiteralPath $apk).Hash.ToLowerInvariant()
 if($hash -ne $build.apkSha256){throw 'APK changed after verification'}
 $publishedApk=@($manifest.files | Where-Object role -eq 'apk')
@@ -269,6 +313,7 @@ try {
             $mathEmbeddedAssets[$asset]=[Text.Encoding]::Latin1.GetString([IO.File]::ReadAllBytes((Join-Path $releaseRoot ('native/gridtimer_native/src/desktop/assets/'+$asset))))
         }
     }
+    if($legalAcceptance){$dexNames['LegalScanRequestBoundary']=$false;$dexNames['LegalRiskScreenKt']=$false}
     try {
         foreach($abi in $abis){
             $entry=$zip.GetEntry("lib/$abi/libgridtimer_native.so")
@@ -412,5 +457,6 @@ if($unexpected.Count){throw 'Non-delivery Android packages remain in app build o
 $receipt=[ordered]@{passed=$true;version=$releaseVersion;versionCode=$releaseCode;sha256=$hash;certificateSha256=$certificate;upgradeCertificateUnchanged=$true;sourceSnapshotSha256=$build.sourceSnapshotSha256;alignment16KVerified=$true;nativeAbis=$abis;packagedUiClasses=$dexNames;formalApkOnly=$true;noDeviceOperations=!(Test-Path -LiteralPath (Join-Path $evidence 'device_installation.json'));windowsVersion=$windowsVersion;windowsArtifactsUnchanged=$true;files=$copies;completed=(Get-Date).ToUniversalTime().ToString('o')}
 if($aiAcceptance){$receipt['aiConnectionAcceptance']=$aiAcceptance}
 if($mathAcceptance){$receipt['mathRenderingAcceptance']=$mathAcceptance}
+if($legalAcceptance){$receipt['legalLifecycleAcceptance']=$legalAcceptance}
 $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $evidence $(if($Mode -eq 'publish'){'delivery_receipt.json'}else{'post_publish_package_check.json'})) -Encoding utf8
 [pscustomobject]$receipt | Select-Object passed,version,versionCode,sha256

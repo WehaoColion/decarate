@@ -1,3 +1,4 @@
+// v2.23.2.8 - Record Android legal scan recovery and local verification scope.
 // v2.23.2.7 - Record the offline reader loading repair and formula whitespace handling.
 // v2.23.2.6 - Record offline formulas, Markdown reading and original text preservation.
 // v2.23.2.5 - Record direct AI questions, explicit knowledge mode and sync status clarity.
@@ -10,7 +11,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.7";
+pub const LATEST_VERSION: &str = "2.23.2.8";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -40,6 +41,28 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.8",
+        updatedAt = "2026-10-04 17:13",
+        summary = "修复法律风险分析失效后一直转圈、不能重新扫描的问题",
+        sections = listOf(
+            AndroidUpdateSection("准备扫描与重新尝试", listOf(
+                "扫描准备期间资料发生变化，原有快照会立即失效。旧准备任务实际结束前继续保留忙碌状态，防止连续点击启动重叠任务、覆盖原生扫描会话；任务结束后可以重新准备。",
+                "请求是否仍可发布结果和是否应释放忙碌状态分别核对。资料更新后不再接受旧结果，旧任务的结束回执仍可释放它自己持有的状态；迟到的旧回执不能清除新任务的状态。",
+                "准备或分析失败后按同一规则结束本次请求，可重新准备并再次尝试，不需要退出应用来恢复按钮。"
+            )),
+            AndroidUpdateSection("停止分析与资料隔离", listOf(
+                "分析开始时独立保存正在运行的扫描编号。即使预览因资料更新被清空，仍可停止该会话的后续批次，并在任务结束时回收本次原生会话。",
+                "分析及取消尚未结束时暂不能撤销预览，点击处理也再次核对任务所有权，避免撤销和取消相互破坏。离开页面或切换账户后，旧任务不能发布到新的工作区。",
+                "读取报告和同步状态后，再次核对当前账户、工作区和资料快照；失效结果不显示为当前报告，也不由旧回调启动新的同步。"
+            )),
+            AndroidUpdateSection("发送、验证与版本", listOf(
+                "法律分析继续先准备扫描、展示接收方和待发送资料，再由你点击“发送并分析”。缺少可读内容、密钥、模型、有效地址或当前身份时禁止发送。加密资料解锁、证据核对和本机报告保存规则继续保留。",
+                "本版的本地验收覆盖资料失效、异步任务结束、重复点击、失败重试、取消及账户隔离，并检查正式源码生成、单元测试、lint和安装包签名。本次未连接手机，尚未进行手机上的操作复测或新的真实AI法律分析请求。",
+                "安卓版本为2.23.2.8，内部版本代码22277，沿用原应用包名与正式签名。Windows正式版本保持1.1.0.6。以前的更新说明和时间保留，当前说明继续支持点按复制、整版复制及历史入口。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.7",
         updatedAt = "2026-10-04 02:46",
