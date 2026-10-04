@@ -1,0 +1,42 @@
+{
+  "version": "0.18.7",
+  "source": "https://cdn.jsdelivr.net/npm/katex@0.18.7/dist/",
+  "officialSri": {
+    "js": "+7Keh381hSkXmXqnjC0JBM/kzsN6TFj+wMKychSLjTvJ8/0ElMde2uKl8i6p6Buj",
+    "css": "JctiRyLzXCrSoOOzFlSoWLdyzQl7OrrRnhyeBmzB6ZWtcjccUyc8lCQJqIbs3uQX"
+  },
+  "fonts": [
+    "fonts/KaTeX_AMS-Regular.woff2",
+    "fonts/KaTeX_Caligraphic-Bold.woff2",
+    "fonts/KaTeX_Caligraphic-Regular.woff2",
+    "fonts/KaTeX_Fraktur-Bold.woff2",
+    "fonts/KaTeX_Fraktur-Regular.woff2",
+    "fonts/KaTeX_Main-Bold.woff2",
+    "fonts/KaTeX_Main-BoldItalic.woff2",
+    "fonts/KaTeX_Main-Italic.woff2",
+    "fonts/KaTeX_Main-Regular.woff2",
+    "fonts/KaTeX_Math-BoldItalic.woff2",
+    "fonts/KaTeX_Math-Italic.woff2",
+    "fonts/KaTeX_SansSerif-Bold.woff2",
+    "fonts/KaTeX_SansSerif-Italic.woff2",
+    "fonts/KaTeX_SansSerif-Regular.woff2",
+    "fonts/KaTeX_Script-Regular.woff2",
+    "fonts/KaTeX_Size1-Regular.woff2",
+    "fonts/KaTeX_Size2-Regular.woff2",
+    "fonts/KaTeX_Size3-Regular.woff2",
+    "fonts/KaTeX_Size4-Regular.woff2",
+    "fonts/KaTeX_Typewriter-Regular.woff2"
+  ],
+  "files": [
+    {
+      "name": "katex_v0.18.7.min.js",
+      "sha256": "10a91b479cd927446ceb60409fb0d72b5d0d05eaf446c9e52fafd64058c84540",
+      "bytes": 272715
+    },
+    {
+      "name": "katex_v0.18.7_embedded.css",
+      "sha256": "40f805b88bb3d0164adef8c461e77166a10d4232b30acd3543dd9063250e0ea9",
+      "bytes": 368260
+    }
+  ]
+}

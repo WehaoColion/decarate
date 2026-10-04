@@ -1,3 +1,6 @@
+// v2.23.2.6 - Include the bundled offline mathematical engine license.
+// v2.22.38 - Use the tenfold application label in every Android locale.
+// v2.22.21 - Reduce the launcher mark to a flat clock ring and two hands.
 // Rust-owned Android manifest and resource templates emitted into Gradle's generated Android source set.
 // Keep these strings exact, then let the generator materialize them under build/.
 
@@ -8,6 +11,10 @@ pub struct AndroidSource {
 
 pub const SOURCES: &[AndroidSource] = &[
     AndroidSource {
+        path: "res/raw/katex_license.txt",
+        contents: include_str!("../desktop/assets/katex_LICENSE.txt"),
+    },
+    AndroidSource {
         path: "AndroidManifest.xml",
         contents: r####"
 <?xml version="1.0" encoding="utf-8"?>
@@ -17,13 +24,18 @@ pub const SOURCES: &[AndroidSource] = &[
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="false" />
 
     <application
         android:name=".GridTimerApplication"
@@ -91,6 +103,9 @@ pub const SOURCES: &[AndroidSource] = &[
         <receiver
             android:name=".notifications.TimerNotificationActionReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".notifications.MicroBreakAlarmReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>
@@ -105,18 +120,8 @@ pub const SOURCES: &[AndroidSource] = &[
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#F2EADD"
+        android:fillColor="#F4EEE6"
         android:pathData="M0,0h108v108h-108z" />
-    <path
-        android:fillColor="#FCF9F3"
-        android:pathData="M18,12h72a14,14 0 0 1 14,14v56a26,26 0 0 1 -26,26H18a14,14 0 0 1 -14,-14V26a14,14 0 0 1 14,-14z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.72"
-        android:pathData="M13,18c10,-8 24,-12 41,-12 16.5,0 30.8,3.3 42,10 -8,-2.2 -16.6,-3.3 -25.7,-3.3 -20,0 -37.9,5.8 -51.3,15.3L13,18z" />
-    <path
-        android:fillColor="#E1D5C4"
-        android:pathData="M4,74c11.3,9.2 28.7,14.8 50,14.8 21.4,0 38.8,-5.6 50,-14.8V108H4V74z" />
 </vector>
 "####,
     },
@@ -129,40 +134,15 @@ pub const SOURCES: &[AndroidSource] = &[
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#92261F"
-        android:pathData="M54,10C29.7,10 10,29.7 10,54s19.7,44 44,44 44,-19.7 44,-44S78.3,10 54,10z" />
+        android:fillColor="#C7463A"
+        android:fillType="evenOdd"
+        android:pathData="M54,20a34,34 0,1 0,0 68a34,34 0,1 0,0 -68zM54,29a25,25 0,1 1,0 50a25,25 0,1 1,0 -50z" />
     <path
-        android:fillColor="#D65346"
-        android:pathData="M54,14C31.9,14 14,31.9 14,54s17.9,40 40,40 40,-17.9 40,-40S76.1,14 54,14z" />
+        android:fillColor="#292624"
+        android:pathData="M51.5,37h5v18.4l12.2,7.1 -2.6,4.3 -14.6,-8.5z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.26"
-        android:pathData="M32,17c6.1,-2.1 12.7,-3.3 19.6,-3.3 18.7,0 34.7,8.3 42.3,24.6 -7.5,-8 -18.1,-12.7 -30,-12.7 -12.3,0 -23.1,5 -31,13.1L32,17z" />
-    <path
-        android:fillColor="#F7F2E9"
-        android:pathData="M54,24C37.4,24 24,37.4 24,54s13.4,30 30,30 30,-13.4 30,-30S70.6,24 54,24z" />
-    <path
-        android:fillColor="#E4DBCE"
-        android:pathData="M54,28C39.6,28 28,39.6 28,54s11.6,26 26,26 26,-11.6 26,-26S68.4,28 54,28z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.65"
-        android:pathData="M39,34c4.1,-3.8 9.7,-6.1 15.9,-6.1 10.4,0 19.4,6.4 23.3,15.5 -4.2,-4.9 -10.5,-7.9 -17.5,-7.9 -6.4,0 -12.2,2.5 -16.5,6.6L39,34z" />
-    <path
-        android:fillColor="#2B2B2B"
-        android:pathData="M52,36h4v18.8l11.4,7.2 -2.4,3.6L52,57.6V36z" />
-    <path
-        android:fillColor="#C0392B"
-        android:pathData="M53,54h2v14h-2z" />
-    <path
-        android:fillColor="#2B2B2B"
-        android:pathData="M49,49a5,5 0 1,0 10,0a5,5 0 1,0 -10,0" />
-    <path
-        android:fillColor="#C0392B"
-        android:pathData="M48,8h12v9H48z" />
-    <path
-        android:fillColor="#2B2B2B"
-        android:pathData="M35,16l-8,8 4,4 8,-8zM73,16l4,4 -8,8 -4,-4z" />
+        android:fillColor="#292624"
+        android:pathData="M50,50a4,4 0,1 0,8 0a4,4 0,1 0,-8 0M49,11h10v9h-10z" />
 </vector>
 "####,
     },
@@ -176,13 +156,8 @@ pub const SOURCES: &[AndroidSource] = &[
     android:viewportHeight="108">
     <path
         android:fillColor="#000000"
-        android:pathData="M54,15c-21.5,0 -39,17.5 -39,39s17.5,39 39,39 39,-17.5 39,-39S75.5,15 54,15z" />
-    <path
-        android:fillColor="#000000"
-        android:pathData="M49.5,8h9v11h-9zM31.2,16.8l-7.6,7.6 3.8,3.8 7.6,-7.6zM76.8,16.8l3.8,3.8 -7.6,7.6 -3.8,-3.8z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,26c-15.5,0 -28,12.5 -28,28s12.5,28 28,28 28,-12.5 28,-28S69.5,26 54,26z" />
+        android:fillType="evenOdd"
+        android:pathData="M54,20a34,34 0,1 0,0 68a34,34 0,1 0,0 -68zM54,29a25,25 0,1 1,0 50a25,25 0,1 1,0 -50z" />
     <path
         android:fillColor="#000000"
         android:pathData="M52,36h4v18.5l11.2,7.1 -2.1,3.4L52,57.3V36z" />
@@ -302,7 +277,7 @@ pub const SOURCES: &[AndroidSource] = &[
         path: "res/values/strings.xml",
         contents: r####"
 <resources>
-    <string name="app_name">十倍率</string>
+    <string name="app_name">tenfold</string>
 </resources>
 "####,
     },
@@ -310,7 +285,7 @@ pub const SOURCES: &[AndroidSource] = &[
         path: "res/values/themes.xml",
         contents: r####"
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Theme.GridTimer" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.GridTimer.Base" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
@@ -318,6 +293,7 @@ pub const SOURCES: &[AndroidSource] = &[
         <item name="android:windowTranslucentNavigation">false</item>
         <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
     </style>
+    <style name="Theme.GridTimer" parent="Theme.GridTimer.Base" />
 </resources>
 "####,
     },
@@ -339,7 +315,7 @@ pub const SOURCES: &[AndroidSource] = &[
         path: "res/values-en/strings.xml",
         contents: r####"
 <resources>
-    <string name="app_name">Grid Timer</string>
+    <string name="app_name">tenfold</string>
 </resources>
 "####,
     },
@@ -361,7 +337,7 @@ pub const SOURCES: &[AndroidSource] = &[
         path: "res/values-ja/strings.xml",
         contents: r####"
 <resources>
-    <string name="app_name">グリッドタイマー</string>
+    <string name="app_name">tenfold</string>
 </resources>
 "####,
     },
@@ -369,7 +345,7 @@ pub const SOURCES: &[AndroidSource] = &[
         path: "res/values-v27/themes.xml",
         contents: r####"
 <resources>
-    <style name="Theme.GridTimer" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.GridTimer" parent="Theme.GridTimer.Base">
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>
@@ -380,8 +356,12 @@ pub const SOURCES: &[AndroidSource] = &[
         contents: r####"
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <include domain="file" path="timer_state.json" />
-    <include domain="file" path="timer_state_backup.json" />
+    <include domain="file" path="timer_state.json" requireFlags="clientSideEncryption" />
+    <include domain="file" path="timer_state_backup.json" requireFlags="clientSideEncryption" />
+    <include domain="file" path="state_workspaces/" requireFlags="clientSideEncryption" />
+    <include domain="file" path="note_media/" requireFlags="clientSideEncryption" />
+    <include domain="database" path="app_state.db" requireFlags="clientSideEncryption" />
+    <include domain="database" path="app_state.db-wal" requireFlags="clientSideEncryption" />
 </full-backup-content>
 "####,
     },
@@ -390,13 +370,21 @@ pub const SOURCES: &[AndroidSource] = &[
         contents: r####"
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
-    <cloud-backup>
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
         <include domain="file" path="timer_state.json" />
         <include domain="file" path="timer_state_backup.json" />
+        <include domain="file" path="state_workspaces/" />
+        <include domain="file" path="note_media/" />
+        <include domain="database" path="app_state.db" />
+        <include domain="database" path="app_state.db-wal" />
     </cloud-backup>
     <device-transfer>
         <include domain="file" path="timer_state.json" />
         <include domain="file" path="timer_state_backup.json" />
+        <include domain="file" path="state_workspaces/" />
+        <include domain="file" path="note_media/" />
+        <include domain="database" path="app_state.db" />
+        <include domain="database" path="app_state.db-wal" />
     </device-transfer>
 </data-extraction-rules>
 "####,
@@ -415,6 +403,9 @@ pub const SOURCES: &[AndroidSource] = &[
     <cache-path
         name="note_capture"
         path="note_capture/" />
+    <files-path
+        name="finance_backups"
+        path="finance_backups/" />
 </paths>
 "####,
     },
@@ -425,8 +416,52 @@ pub const SOURCES: &[AndroidSource] = &[
 <locale-config xmlns:android="http://schemas.android.com/apk/res/android">
     <locale android:name="zh-CN" />
     <locale android:name="en-US" />
+    <locale android:name="hi-IN" />
+    <locale android:name="es-ES" />
+    <locale android:name="ar" />
+    <locale android:name="fr-FR" />
+    <locale android:name="bn-BD" />
+    <locale android:name="pt-BR" />
+    <locale android:name="id-ID" />
+    <locale android:name="ur-PK" />
     <locale android:name="ja-JP" />
 </locale-config>
 "####,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::SOURCES;
+
+    fn source(path: &str) -> &'static str {
+        SOURCES
+            .iter()
+            .find(|source| source.path == path)
+            .map(|source| source.contents)
+            .unwrap_or_else(|| panic!("missing generated source: {path}"))
+    }
+
+    #[test]
+    fn android_backup_requires_encryption_and_keeps_device_transfer() {
+        for path in [
+            "res/xml/backup_rules.xml",
+            "res/xml/data_extraction_rules.xml",
+        ] {
+            let rules = source(path);
+            assert!(rules.contains("path=\"state_workspaces/\""));
+            assert!(rules.contains("path=\"note_media/\""));
+            assert!(rules.contains("domain=\"database\" path=\"app_state.db\""));
+        }
+        assert!(
+            source("res/xml/backup_rules.xml").contains("requireFlags=\"clientSideEncryption\"")
+        );
+        assert!(source("res/xml/data_extraction_rules.xml")
+            .contains("cloud-backup disableIfNoEncryptionCapabilities=\"true\""));
+        let manifest = source("AndroidManifest.xml");
+        assert!(!manifest.contains("android.permission.RECORD_AUDIO"));
+        assert!(!manifest.contains("android.permission.READ_CONTACTS"));
+        assert!(!manifest.contains("android.permission.WRITE_EXTERNAL_STORAGE"));
+        assert!(manifest.contains("android:maxSdkVersion=\"32\""));
+    }
+}

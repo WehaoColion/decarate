@@ -57,4 +57,52 @@ native/gridtimer_native/xiaomi_setup_status.md
 /*.exe
 
 # Original thesis folder uses non-English paths; republished copies live under documents/thesis/.
-周文豪/
+/*[!a-zA-Z0-9_.-]*/
+
+# Private local materials and baseline publication exclusions
+.cache/
+.codex-remote-attachments/
+**/__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+documents/thesis/
+documents/*.docx
+documents/*context*.md
+/windows_client_audit_context*
+/system_test_release_home.png
+old_apks/
+old_exes/
+APK/
+*.apk
+*.aab
+tools/tmp_*
+tools/*_patch.py
+tools/*_patch.ps1
+tools/verify_legal_send_mutation.ps1
+tools/verify_windows_legal_send_mutation.ps1
+tools/set_test_timer_state.ps1
+
+# Keep only the current formal release and stable desktop assets
+release_artifacts/*
+!release_artifacts/current/
+!release_artifacts/desktop_entry/
+release_artifacts/current/*
+!release_artifacts/current/release_manifest.json
+!release_artifacts/current/tools/
+release_artifacts/current/tools/*
+!release_artifacts/current/tools/cloudflared.exe
+!release_artifacts/desktop_entry/Build-TenRateIcon.mjs
+!release_artifacts/desktop_entry/TenRate_Icon.ico
+!release_artifacts/desktop_entry/TenRate_Icon.png
+!release_artifacts/desktop_entry/TenRate_Icon.svg
+
+# Independent applications outside the TenRate build
+/r2_clock/
+/r2_calendar/

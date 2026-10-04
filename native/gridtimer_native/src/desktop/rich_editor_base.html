@@ -1,0 +1,1238 @@
+<!-- v2.22.46 - Match the Windows editor to the workspace theme. -->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <title>十倍率文档编辑</title>
+    <meta
+        http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src note-image: data:; style-src 'unsafe-inline'; script-src 'nonce-gridtimer-editor-v22135'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content"
+    />
+    <style>
+        :root {
+            color-scheme: light;
+            --accent: #315cbe;
+            --bg: #f4f6fa;
+            --card: #ffffff;
+            --text: #202d43;
+            --sub: #5e6e85;
+            --line: #dde4ee;
+            --soft: #e6edff;
+            --primary-bg: #315cbe;
+            --primary-text: #ffffff;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                color-scheme: dark;
+                --accent: #a1bcff;
+                --bg: #141820;
+                --card: #1d2430;
+                --text: #eaf0fa;
+                --sub: #a5b2c6;
+                --line: #344052;
+                --soft: #262f3d;
+                --primary-bg: #a1bcff;
+                --primary-text: #13264b;
+            }
+        }
+
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --accent: #a1bcff;
+            --bg: #141820;
+            --card: #1d2430;
+            --text: #eaf0fa;
+            --sub: #a5b2c6;
+            --line: #344052;
+            --soft: #262f3d;
+            --primary-bg: #a1bcff;
+            --primary-text: #13264b;
+        }
+
+        :root[data-theme="oled"] {
+            color-scheme: dark;
+            --accent: #a1bcff;
+            --bg: #000000;
+            --card: #000000;
+            --text: #f2f4f8;
+            --sub: #b9c1cc;
+            --line: #383e47;
+            --soft: #141820;
+            --primary-bg: #a1bcff;
+            --primary-text: #13264b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            min-height: 100%;
+            background: transparent;
+            color: var(--text);
+            font-family: 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', 'Noto Sans SC', sans-serif;
+            overflow-x: hidden;
+        }
+
+        body {
+            padding: 0;
+        }
+
+        #frame {
+            min-height: 280px;
+            background: linear-gradient(180deg, var(--card) 0%, var(--bg) 100%);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: none;
+            overflow: hidden;
+        }
+
+        #editor {
+            min-height: 280px;
+            outline: none;
+            padding: 20px;
+            font-size: 16px;
+            line-height: 1.9;
+            color: var(--text);
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            caret-color: var(--accent) !important;
+            -webkit-text-fill-color: var(--text);
+            -webkit-user-select: text;
+            user-select: text;
+            -webkit-touch-callout: default;
+        }
+
+        #editor[data-empty="true"][data-focused="false"]::before {
+            content: attr(data-placeholder);
+            display: block;
+            color: var(--sub);
+            pointer-events: none;
+        }
+
+        #editor p,
+        #editor div,
+        #editor li,
+        #editor blockquote,
+        #editor figure,
+        #editor h1,
+        #editor h2,
+        #editor h3 {
+            margin: 0 0 12px;
+        }
+
+        #editor p:last-child,
+        #editor div:last-child,
+        #editor li:last-child,
+        #editor blockquote:last-child,
+        #editor figure:last-child,
+        #editor h1:last-child,
+        #editor h2:last-child,
+        #editor h3:last-child {
+            margin-bottom: 0;
+        }
+
+        #editor h1,
+        #editor h2,
+        #editor h3 {
+            line-height: 1.35;
+            letter-spacing: 0.02em;
+        }
+
+        #editor h1 { font-size: 1.75em; }
+        #editor h2 { font-size: 1.45em; }
+        #editor h3 { font-size: 1.2em; }
+
+        #editor blockquote {
+            padding: 10px 14px;
+            border-left: 4px solid var(--accent);
+            background: var(--soft);
+            border-radius: 0 16px 16px 0;
+            color: var(--sub);
+        }
+
+        #editor figure[data-note-image] {
+            margin: 0 0 12px;
+            padding: 12px;
+            border-radius: 18px;
+            background: var(--card);
+            border: 1px solid var(--line);
+            box-shadow: none;
+        }
+
+        #editor figure[data-note-image] img {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            border-radius: 14px;
+            background: var(--soft);
+        }
+
+        #editor figure[data-note-image] figcaption {
+            margin-top: 8px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--sub);
+        }
+
+        #editor ul,
+        #editor ol {
+            margin: 0 0 12px;
+            padding-left: 22px;
+        }
+
+        #editor [data-align="center"] {
+            text-align: center;
+        }
+
+        #editor a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        #editor ul[data-note-todo="true"] {
+            list-style: none;
+            padding-left: 0;
+            display: grid;
+            gap: 10px;
+        }
+
+        #editor ul[data-note-todo="true"] li {
+            position: relative;
+            padding-left: 28px;
+        }
+
+        #editor ul[data-note-todo="true"] li::before {
+            content: "☐";
+            position: absolute;
+            left: 0;
+            top: 0;
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        #editor ul[data-note-todo="true"] li[data-done="true"] {
+            color: var(--sub);
+            text-decoration: line-through;
+        }
+
+        #editor ul[data-note-todo="true"] li[data-done="true"]::before {
+            content: "☑";
+        }
+    </style>
+</head>
+<body>
+    <div id="frame">
+        <div
+            id="editor"
+            contenteditable="false"
+            spellcheck="false"
+            data-empty="true"
+            tabindex="0"
+            role="textbox"
+            aria-multiline="true"
+            aria-readonly="true"
+        ></div>
+    </div>
+    <script nonce="gridtimer-editor-v22135">
+        (function () {
+            const frame = document.getElementById('frame');
+            const editor = document.getElementById('editor');
+            let isReadOnly = true;
+            const blockTags = new Set(['p', 'div', 'h1', 'h2', 'h3', 'blockquote', 'figure', 'ul', 'ol']);
+            let suppressPush = false;
+            let pushTimer = 0;
+            let savedSelection = null;
+            let lastPushedHtml = '';
+            let lastPushedPlainText = '';
+            let caretScrollFrame = 0;
+            let isComposing = false;
+            let pendingPushRequested = false;
+            let pendingPushNormalize = false;
+            let pendingPushImmediate = false;
+            let pendingPushDelay = 180;
+
+            function unwrapElement(element) {
+                if (!element || !element.parentNode) {
+                    return;
+                }
+                while (element.firstChild) {
+                    element.parentNode.insertBefore(element.firstChild, element);
+                }
+                element.parentNode.removeChild(element);
+            }
+
+            function closestElement(node) {
+                if (!node) {
+                    return null;
+                }
+                return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+            }
+
+            function closestBlock(node) {
+                let element = closestElement(node);
+                while (element && element !== editor) {
+                    if (blockTags.has(element.tagName.toLowerCase())) {
+                        return element;
+                    }
+                    element = element.parentElement;
+                }
+                return null;
+            }
+
+            function closestListItem(node) {
+                let element = closestElement(node);
+                while (element && element !== editor) {
+                    if (element.tagName && element.tagName.toLowerCase() === 'li') {
+                        return element;
+                    }
+                    element = element.parentElement;
+                }
+                return null;
+            }
+
+            function closestList(node) {
+                let element = closestElement(node);
+                while (element && element !== editor) {
+                    const tag = element.tagName ? element.tagName.toLowerCase() : '';
+                    if (tag === 'ul' || tag === 'ol') {
+                        return element;
+                    }
+                    element = element.parentElement;
+                }
+                return null;
+            }
+
+            function closestTodoItem(node) {
+                const item = closestListItem(node);
+                return item && item.parentElement && item.parentElement.dataset.noteTodo === 'true'
+                    ? item
+                    : null;
+            }
+
+            function createTrailingParagraph() {
+                const paragraph = document.createElement('p');
+                paragraph.appendChild(document.createElement('br'));
+                return paragraph;
+            }
+
+            function buildImageFigure(attachmentId, description) {
+                const figure = document.createElement('figure');
+                figure.setAttribute('data-note-image', attachmentId);
+                figure.setAttribute('contenteditable', 'false');
+                const image = document.createElement('img');
+                image.src = 'note-image://' + attachmentId;
+                image.alt = description || '图片';
+                figure.appendChild(image);
+                const caption = (description || '').trim();
+                if (caption) {
+                    const figcaption = document.createElement('figcaption');
+                    figcaption.textContent = caption;
+                    figure.appendChild(figcaption);
+                }
+                return figure;
+            }
+
+            function normalizeRootBlocks() {
+                const children = Array.from(editor.childNodes);
+                children.forEach((node) => {
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        const text = (node.textContent || '').trim();
+                        if (!text) {
+                            editor.removeChild(node);
+                            return;
+                        }
+                        const paragraph = document.createElement('p');
+                        paragraph.textContent = text;
+                        editor.replaceChild(paragraph, node);
+                        return;
+                    }
+                    if (node.nodeType !== Node.ELEMENT_NODE) {
+                        editor.removeChild(node);
+                        return;
+                    }
+                    const element = node;
+                    const tag = element.tagName.toLowerCase();
+                    if (tag === 'img') {
+                        // Legacy rich documents may store a valid image directly
+                        // at the root. Preserve the element rather than moving its
+                        // (empty) child list into a paragraph.
+                        const source = noteImageSourcePattern.exec(element.getAttribute('src') || '');
+                        if (source) {
+                            const figure = document.createElement('figure');
+                            figure.setAttribute('data-note-image', source[1]);
+                            figure.setAttribute('contenteditable', 'false');
+                            editor.replaceChild(figure, element);
+                            figure.appendChild(element);
+                            return;
+                        }
+                    }
+                    if (blockTags.has(tag)) {
+                        return;
+                    }
+                    const paragraph = document.createElement('p');
+                    while (element.firstChild) {
+                        paragraph.appendChild(element.firstChild);
+                    }
+                    editor.replaceChild(paragraph, element);
+                });
+
+                if (!editor.innerHTML.trim()) {
+                    editor.innerHTML = '<p><br></p>';
+                }
+            }
+
+            const allowedMarkupTags = new Set([
+                'p', 'div', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'del',
+                'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'figure', 'figcaption', 'img'
+            ]);
+            const blockedMarkupTags = new Set([
+                'script', 'style', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet',
+                'svg', 'math', 'template', 'noscript', 'form', 'input', 'button', 'textarea',
+                'select', 'option', 'video', 'audio', 'source', 'track', 'canvas', 'link', 'meta', 'base'
+            ]);
+            const attachmentIdPattern = /^[A-Za-z0-9._-]{1,128}$/;
+            const noteImageSourcePattern = /^note-image:\/\/([A-Za-z0-9._-]{1,128})$/i;
+
+            function unwrapMarkupElement(element) {
+                if (!element || !element.parentNode) {
+                    return;
+                }
+                const fragment = document.createDocumentFragment();
+                while (element.firstChild) {
+                    fragment.appendChild(element.firstChild);
+                }
+                element.parentNode.replaceChild(fragment, element);
+            }
+
+            function sanitizeMarkupTree(root) {
+                Array.from(root.querySelectorAll('*')).forEach((element) => {
+                    if (!element.parentNode) {
+                        return;
+                    }
+                    const tag = element.tagName.toLowerCase();
+                    if (blockedMarkupTags.has(tag)) {
+                        element.remove();
+                        return;
+                    }
+                    if (!allowedMarkupTags.has(tag)) {
+                        unwrapMarkupElement(element);
+                        return;
+                    }
+
+                    const alignCenter = element.getAttribute('data-align') === 'center';
+                    const todoList = tag === 'ul' && element.getAttribute('data-note-todo') === 'true';
+                    const doneState = tag === 'li' ? element.getAttribute('data-done') : null;
+                    const figureAttachmentId = tag === 'figure'
+                        ? (element.getAttribute('data-note-image') || '')
+                        : '';
+                    const imageSource = tag === 'img' ? (element.getAttribute('src') || '') : '';
+                    const imageAlt = tag === 'img' ? (element.getAttribute('alt') || '') : '';
+                    Array.from(element.attributes).forEach((attribute) => {
+                        element.removeAttribute(attribute.name);
+                    });
+
+                    if (
+                        alignCenter &&
+                        ['p', 'div', 'h1', 'h2', 'h3', 'blockquote', 'li'].includes(tag)
+                    ) {
+                        element.setAttribute('data-align', 'center');
+                    }
+                    if (todoList) {
+                        element.setAttribute('data-note-todo', 'true');
+                    }
+                    if (doneState === 'true' || doneState === 'false') {
+                        element.setAttribute('data-done', doneState);
+                    }
+                    if (tag === 'figure' && attachmentIdPattern.test(figureAttachmentId)) {
+                        element.setAttribute('data-note-image', figureAttachmentId);
+                        element.setAttribute('contenteditable', 'false');
+                    }
+                    if (tag === 'img') {
+                        const sourceMatch = noteImageSourcePattern.exec(imageSource);
+                        const figure = element.parentElement && element.parentElement.tagName.toLowerCase() === 'figure'
+                            ? element.parentElement
+                            : null;
+                        const figureId = figure ? (figure.getAttribute('data-note-image') || '') : '';
+                        // The shared HTML whitelist also permits standalone and
+                        // inline images. Keep those; still reject a conflicting
+                        // explicit figure identity or an unsafe source.
+                        if (!sourceMatch || (figureId && sourceMatch[1] !== figureId)) {
+                            element.remove();
+                            return;
+                        }
+                        element.setAttribute('src', 'note-image://' + sourceMatch[1]);
+                        if (imageAlt) {
+                            element.setAttribute('alt', imageAlt.slice(0, 512));
+                        }
+                    }
+                });
+            }
+
+            function sanitizedIncomingFragment(html) {
+                const template = document.createElement('template');
+                template.innerHTML = html && html.trim() ? html : '<p><br></p>';
+                sanitizeMarkupTree(template.content);
+                return template.content;
+            }
+
+            function normalizeMarkup() {
+                sanitizeMarkupTree(editor);
+                normalizeRootBlocks();
+
+                editor.querySelectorAll('[style]').forEach((element) => {
+                    if (element.style && element.style.textAlign === 'center') {
+                        element.dataset.align = 'center';
+                    }
+                    element.removeAttribute('style');
+                });
+
+                editor.querySelectorAll('[align]').forEach((element) => {
+                    if ((element.getAttribute('align') || '').toLowerCase() === 'center') {
+                        element.dataset.align = 'center';
+                    }
+                    element.removeAttribute('align');
+                });
+
+                editor.querySelectorAll('font').forEach(unwrapElement);
+
+                editor.querySelectorAll('span').forEach((element) => {
+                    if (element.attributes.length === 0) {
+                        unwrapElement(element);
+                    }
+                });
+
+                editor.querySelectorAll('ul[data-note-todo="true"]').forEach((list) => {
+                    Array.from(list.children).forEach((item) => {
+                        if (item.tagName && item.tagName.toLowerCase() === 'li' && !item.dataset.done) {
+                            item.dataset.done = 'false';
+                        }
+                    });
+                });
+            }
+
+            function setEditorFocusState(focused) {
+                editor.dataset.focused = focused ? 'true' : 'false';
+            }
+
+            function plainInlineText(node) {
+                if (!node) {
+                    return '';
+                }
+                if (node.nodeType === Node.TEXT_NODE) {
+                    return (node.textContent || '').replace(/\u00A0/g, ' ');
+                }
+                if (node.nodeType !== Node.ELEMENT_NODE) {
+                    return '';
+                }
+                const element = node;
+                const tag = element.tagName.toLowerCase();
+                if (tag === 'br') {
+                    return '\n';
+                }
+                if (tag === 'img') {
+                    return element.getAttribute('alt') || '图片';
+                }
+                let value = '';
+                element.childNodes.forEach((child) => {
+                    value += plainInlineText(child);
+                });
+                return value;
+            }
+
+            function compactText(value) {
+                return value
+                    .replace(/[ \t]+\n/g, '\n')
+                    .replace(/\n[ \t]+/g, '\n')
+                    .replace(/[ \t]{2,}/g, ' ')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .trim();
+            }
+
+            function blockPlainText(node) {
+                if (!node) {
+                    return '';
+                }
+                if (node.nodeType === Node.TEXT_NODE) {
+                    return compactText(node.textContent || '');
+                }
+                if (node.nodeType !== Node.ELEMENT_NODE) {
+                    return '';
+                }
+                const element = node;
+                const tag = element.tagName.toLowerCase();
+                if (tag === 'ul' && element.dataset.noteTodo === 'true') {
+                    return Array.from(element.children)
+                        .filter((item) => item.tagName && item.tagName.toLowerCase() === 'li')
+                        .map((item) => {
+                            const marker = item.dataset.done === 'true' ? '- [x] ' : '- [ ] ';
+                            return marker + compactText(plainInlineText(item));
+                        })
+                        .filter(Boolean)
+                        .join('\n');
+                }
+                if (tag === 'ul') {
+                    return Array.from(element.children)
+                        .filter((item) => item.tagName && item.tagName.toLowerCase() === 'li')
+                        .map((item) => '• ' + compactText(plainInlineText(item)))
+                        .filter(Boolean)
+                        .join('\n');
+                }
+                if (tag === 'ol') {
+                    return Array.from(element.children)
+                        .filter((item) => item.tagName && item.tagName.toLowerCase() === 'li')
+                        .map((item, index) => (index + 1) + '. ' + compactText(plainInlineText(item)))
+                        .filter(Boolean)
+                        .join('\n');
+                }
+                if (tag === 'blockquote') {
+                    return compactText(plainInlineText(element))
+                        .split('\n')
+                        .filter(Boolean)
+                        .map((line) => '“' + line + '”')
+                        .join('\n');
+                }
+                if (tag === 'figure' && element.dataset.noteImage) {
+                    const captionElement = element.querySelector('figcaption');
+                    const caption = compactText(captionElement ? (captionElement.textContent || '') : '图片');
+                    return caption || '图片';
+                }
+                return compactText(plainInlineText(element));
+            }
+
+            function buildPlainText() {
+                const sections = [];
+                Array.from(editor.childNodes).forEach((node) => {
+                    const text = blockPlainText(node);
+                    if (text) {
+                        sections.push(text);
+                    }
+                });
+                return sections.join('\n\n').trim();
+            }
+
+            function caretRectForSelection() {
+                const selection = window.getSelection();
+                if (!selectionInsideEditor(selection)) {
+                    return null;
+                }
+                let rect = null;
+                try {
+                    rect = selection.getRangeAt(0).getBoundingClientRect();
+                } catch (error) {
+                    rect = null;
+                }
+                if (!rect || (!rect.height && !rect.width)) {
+                    const anchor = closestElement(selection.anchorNode);
+                    rect = anchor ? anchor.getBoundingClientRect() : null;
+                }
+                return rect;
+            }
+
+            function notifyCaretChanged(rect) {
+                if (!rect) {
+                    return;
+                }
+                if (!window.AndroidRichText || !window.AndroidRichText.onCaretChanged) {
+                    return;
+                }
+                const payload = {
+                    left: Math.max(0, rect.left || 0),
+                    top: Math.max(0, rect.top || 0),
+                    right: Math.max(1, rect.right || ((rect.left || 0) + 1)),
+                    bottom: Math.max(1, rect.bottom || ((rect.top || 0) + 1)),
+                    scale: window.devicePixelRatio || 1
+                };
+                window.AndroidRichText.onCaretChanged(JSON.stringify(payload));
+            }
+
+            function scrollCaretIntoView() {
+                const rect = caretRectForSelection();
+                if (!rect) {
+                    return;
+                }
+                const toolbar = document.getElementById('desktop-tools');
+                const topInset = Math.max(16, toolbar ? toolbar.getBoundingClientRect().bottom + 12 : 16);
+                const bottomInset = Math.max(96, Math.round(window.innerHeight * 0.28));
+                const viewportBottom = window.innerHeight - bottomInset;
+                let scrolled = false;
+                if (rect.bottom > viewportBottom) {
+                    window.scrollBy(0, rect.bottom - viewportBottom);
+                    scrolled = true;
+                } else if (rect.top < topInset) {
+                    window.scrollBy(0, rect.top - topInset);
+                    scrolled = true;
+                }
+                if (scrolled) {
+                    window.requestAnimationFrame(() => {
+                        notifyCaretChanged(caretRectForSelection() || rect);
+                    });
+                } else {
+                    notifyCaretChanged(rect);
+                }
+            }
+
+            function scheduleCaretIntoView() {
+                if (caretScrollFrame) {
+                    return;
+                }
+                caretScrollFrame = window.requestAnimationFrame(() => {
+                    caretScrollFrame = 0;
+                    scrollCaretIntoView();
+                });
+            }
+
+            function ensureTrailingEditableBlock() {
+                normalizeRootBlocks();
+                let block = editor.lastElementChild;
+                if (!block) {
+                    editor.innerHTML = '<p><br></p>';
+                    block = editor.lastElementChild;
+                }
+                if (block && block.childNodes.length === 0) {
+                    block.appendChild(document.createElement('br'));
+                }
+                return block;
+            }
+
+            function deepestLastNode(node) {
+                let current = node;
+                while (current && current.lastChild) {
+                    current = current.lastChild;
+                }
+                return current;
+            }
+
+            function rangeInsideEditor(range) {
+                return !!(
+                    range &&
+                    editor.contains(range.startContainer) &&
+                    editor.contains(range.endContainer)
+                );
+            }
+
+            function selectionInsideEditor(selection) {
+                if (!selection || selection.rangeCount === 0) {
+                    return false;
+                }
+                return rangeInsideEditor(selection.getRangeAt(0));
+            }
+
+            function rememberSelection() {
+                const selection = window.getSelection();
+                if (!selectionInsideEditor(selection)) {
+                    return false;
+                }
+                try {
+                    savedSelection = selection.getRangeAt(0).cloneRange();
+                    return true;
+                } catch (error) {
+                    savedSelection = null;
+                    return false;
+                }
+            }
+
+            function restoreSelection() {
+                if (!rangeInsideEditor(savedSelection)) {
+                    savedSelection = null;
+                    return false;
+                }
+                const selection = window.getSelection();
+                if (!selection) {
+                    return false;
+                }
+                try {
+                    selection.removeAllRanges();
+                    selection.addRange(savedSelection);
+                    return true;
+                } catch (error) {
+                    savedSelection = null;
+                    return false;
+                }
+            }
+
+            function syncEmptyState(plainText) {
+                const resolvedText = plainText !== undefined ? plainText : buildPlainText();
+                editor.dataset.empty = resolvedText || hasDocumentImage() ? 'false' : 'true';
+            }
+
+            function hasDocumentImage() {
+                return Array.from(editor.querySelectorAll('img')).some((image) =>
+                    noteImageSourcePattern.test(image.getAttribute('src') || '')
+                );
+            }
+
+            function placeCaretAtEnd() {
+                const selection = window.getSelection();
+                if (!selection) {
+                    return;
+                }
+                const range = document.createRange();
+                const block = ensureTrailingEditableBlock();
+                const leaf = block ? deepestLastNode(block) : null;
+                if (leaf && leaf.nodeType === Node.TEXT_NODE) {
+                    range.setStart(leaf, (leaf.textContent || '').length);
+                } else if (block) {
+                    const textNode = document.createTextNode('');
+                    if (leaf && leaf.nodeName === 'BR' && leaf.parentNode) {
+                        leaf.parentNode.insertBefore(textNode, leaf);
+                    } else {
+                        block.appendChild(textNode);
+                    }
+                    range.setStart(textNode, 0);
+                } else {
+                    range.selectNodeContents(editor);
+                    range.collapse(false);
+                }
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                rememberSelection();
+            }
+
+            function placeCaretAtStart(block) {
+                const selection = window.getSelection();
+                if (!selection || !block) {
+                    return;
+                }
+                const range = document.createRange();
+                let target = block.firstChild;
+                if (!target) {
+                    block.appendChild(document.createElement('br'));
+                    target = block.firstChild;
+                }
+                if (target && target.nodeType === Node.TEXT_NODE) {
+                    range.setStart(target, 0);
+                } else if (target && target.nodeName === 'BR') {
+                    const textNode = document.createTextNode('');
+                    block.insertBefore(textNode, target);
+                    range.setStart(textNode, 0);
+                } else {
+                    range.selectNodeContents(block);
+                    range.collapse(true);
+                }
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                rememberSelection();
+            }
+
+            function focusEditor(restoreSavedSelection = true) {
+                if (isReadOnly) {
+                    return;
+                }
+                try {
+                    editor.focus({ preventScroll: true });
+                } catch (error) {
+                    editor.focus();
+                }
+                if (restoreSavedSelection) {
+                    if (!restoreSelection()) {
+                        placeCaretAtEnd();
+                    }
+                } else if (!rememberSelection()) {
+                    placeCaretAtEnd();
+                }
+                rememberSelection();
+                syncEmptyState();
+                scheduleCaretIntoView();
+            }
+
+            function flushPendingPush() {
+                pushTimer = 0;
+                if (isReadOnly || suppressPush || isComposing || !pendingPushRequested) {
+                    return;
+                }
+                const shouldNormalize = pendingPushNormalize;
+                pendingPushRequested = false;
+                pendingPushNormalize = false;
+                pendingPushImmediate = false;
+                pendingPushDelay = 180;
+                if (shouldNormalize) {
+                    normalizeMarkup();
+                }
+                rememberSelection();
+                const plainText = buildPlainText();
+                const htmlValue = plainText || hasDocumentImage() ? editor.innerHTML.trim() : '';
+                if (htmlValue === lastPushedHtml && plainText === lastPushedPlainText) {
+                    syncEmptyState(plainText);
+                    scheduleCaretIntoView();
+                    return;
+                }
+                lastPushedHtml = htmlValue;
+                lastPushedPlainText = plainText;
+                const payload = {
+                    html: htmlValue,
+                    plain_text: plainText
+                };
+                syncEmptyState(plainText);
+                scheduleCaretIntoView();
+                if (window.AndroidRichText && window.AndroidRichText.onContentChanged) {
+                    window.AndroidRichText.onContentChanged(JSON.stringify(payload));
+                }
+            }
+
+            function emitCommitSnapshot(requestId) {
+                window.clearTimeout(pushTimer);
+                pushTimer = 0;
+                pendingPushRequested = false;
+                pendingPushNormalize = false;
+                pendingPushImmediate = false;
+                pendingPushDelay = 180;
+                normalizeMarkup();
+                rememberSelection();
+                const plainText = buildPlainText();
+                const htmlValue = plainText || hasDocumentImage() ? editor.innerHTML.trim() : '';
+                lastPushedHtml = htmlValue;
+                lastPushedPlainText = plainText;
+                const payload = {
+                    html: htmlValue,
+                    plain_text: plainText
+                };
+                syncEmptyState(plainText);
+                scheduleCaretIntoView();
+                if (window.AndroidRichText && window.AndroidRichText.onCommitSnapshot) {
+                    window.AndroidRichText.onCommitSnapshot(String(requestId), JSON.stringify(payload));
+                }
+            }
+
+            function requestCommitSnapshot(requestId) {
+                const safeRequestId = String(requestId || '');
+                if (!safeRequestId) {
+                    return;
+                }
+                window.clearTimeout(pushTimer);
+                pushTimer = 0;
+                if (!isComposing) {
+                    emitCommitSnapshot(safeRequestId);
+                    return;
+                }
+                editor.blur();
+                let remainingCompositionChecks = 12;
+                const awaitCompositionEnd = () => {
+                    if (!isComposing || remainingCompositionChecks <= 0) {
+                        isComposing = false;
+                        emitCommitSnapshot(safeRequestId);
+                        return;
+                    }
+                    remainingCompositionChecks -= 1;
+                    window.setTimeout(awaitCompositionEnd, 16);
+                };
+                window.setTimeout(awaitCompositionEnd, 16);
+            }
+
+            function pushUpdate(options = {}) {
+                if (isReadOnly || suppressPush) {
+                    return;
+                }
+                const shouldNormalize = !!options.normalize;
+                const shouldRunImmediately = !!options.immediate;
+                const requestedDelay = typeof options.debounce === 'number' ? options.debounce : 180;
+                pendingPushRequested = true;
+                pendingPushNormalize = pendingPushNormalize || shouldNormalize;
+                pendingPushImmediate = pendingPushImmediate || shouldRunImmediately;
+                pendingPushDelay = pendingPushImmediate ? 0 : Math.min(pendingPushDelay, requestedDelay);
+                if (isComposing) {
+                    return;
+                }
+                window.clearTimeout(pushTimer);
+                pushTimer = window.setTimeout(
+                    flushPendingPush,
+                    pendingPushImmediate ? 0 : pendingPushDelay
+                );
+            }
+
+            function setTheme(accent, placeholder, background, card, text, sub, line, soft) {
+                document.documentElement.style.setProperty('--accent', accent || '#315cbe');
+                document.documentElement.style.setProperty('--bg', background || '#f4f6fa');
+                document.documentElement.style.setProperty('--card', card || '#ffffff');
+                document.documentElement.style.setProperty('--text', text || '#202d43');
+                document.documentElement.style.setProperty('--sub', sub || '#5e6e85');
+                document.documentElement.style.setProperty('--line', line || '#dde4ee');
+                document.documentElement.style.setProperty('--soft', soft || '#e6edff');
+                editor.setAttribute('data-placeholder', placeholder || '');
+                syncEmptyState();
+            }
+
+            function setReadOnly(readOnly) {
+                isReadOnly = !!readOnly;
+                editor.setAttribute('contenteditable', isReadOnly ? 'false' : 'true');
+                editor.setAttribute('spellcheck', isReadOnly ? 'false' : 'true');
+                editor.setAttribute('aria-readonly', isReadOnly ? 'true' : 'false');
+                if (isReadOnly) {
+                    editor.blur();
+                    setEditorFocusState(false);
+                }
+            }
+
+            function setHtml(html) {
+                suppressPush = true;
+                editor.replaceChildren(sanitizedIncomingFragment(html));
+                normalizeMarkup();
+                savedSelection = null;
+                lastPushedHtml = '';
+                lastPushedPlainText = '';
+                suppressPush = false;
+                pushUpdate({ normalize: false, immediate: true });
+            }
+
+            function toggleBlockFormat(tagName) {
+                const block = closestBlock(window.getSelection().anchorNode);
+                const currentTag = block && block.tagName ? block.tagName.toLowerCase() : '';
+                document.execCommand('formatBlock', false, currentTag === tagName ? 'p' : tagName);
+            }
+
+            function toggleCenter() {
+                const block = closestBlock(window.getSelection().anchorNode);
+                if (!block) {
+                    return;
+                }
+                if (block.dataset.align === 'center') {
+                    delete block.dataset.align;
+                } else {
+                    block.dataset.align = 'center';
+                }
+            }
+
+            function markTodoList(list) {
+                if (!list) {
+                    return;
+                }
+                list.dataset.noteTodo = 'true';
+                Array.from(list.children).forEach((item) => {
+                    if (item.tagName && item.tagName.toLowerCase() === 'li' && !item.dataset.done) {
+                        item.dataset.done = 'false';
+                    }
+                });
+            }
+
+            function insertTodoList() {
+                document.execCommand('insertUnorderedList');
+                const selection = window.getSelection();
+                const list = closestList(selection.anchorNode);
+                markTodoList(list);
+            }
+
+            function toggleTodoState() {
+                let item = closestTodoItem(window.getSelection().anchorNode);
+                if (!item) {
+                    insertTodoList();
+                    return;
+                }
+                if (item) {
+                    item.dataset.done = item.dataset.done === 'true' ? 'false' : 'true';
+                }
+            }
+
+            function toggleTodoItem(item) {
+                if (!item) {
+                    return;
+                }
+                item.dataset.done = item.dataset.done === 'true' ? 'false' : 'true';
+                normalizeMarkup();
+                syncEmptyState();
+                pushUpdate({ immediate: true });
+            }
+
+            function todoCheckboxHit(event) {
+                const item = closestTodoItem(event.target);
+                if (!item) {
+                    return null;
+                }
+                const rect = item.getBoundingClientRect();
+                const hitWidth = 34;
+                const x = event.clientX || 0;
+                const y = event.clientY || 0;
+                const withinY = y >= rect.top && y <= rect.bottom;
+                return withinY && x >= rect.left && x <= rect.left + hitWidth ? item : null;
+            }
+
+            function insertImage(attachmentId, description) {
+                if (isReadOnly || !attachmentId) {
+                    return;
+                }
+                focusEditor();
+                const selection = window.getSelection();
+                const anchorNode = selection && selection.rangeCount > 0 ? selection.anchorNode : null;
+                const currentBlock = closestBlock(anchorNode) || ensureTrailingEditableBlock();
+                const figure = buildImageFigure(attachmentId, description);
+                if (currentBlock && currentBlock.parentNode === editor) {
+                    const insertAfter = currentBlock.nextSibling;
+                    if (insertAfter) {
+                        editor.insertBefore(figure, insertAfter);
+                    } else {
+                        editor.appendChild(figure);
+                    }
+                } else {
+                    editor.appendChild(figure);
+                }
+                let caretBlock = null;
+                const nextElement = figure.nextSibling && figure.nextSibling.nodeType === Node.ELEMENT_NODE
+                    ? figure.nextSibling
+                    : null;
+                const nextTag = nextElement && nextElement.tagName ? nextElement.tagName.toLowerCase() : '';
+                if (nextElement && blockTags.has(nextTag) && nextTag !== 'figure') {
+                    caretBlock = nextElement;
+                } else {
+                    caretBlock = createTrailingParagraph();
+                    if (figure.nextSibling) {
+                        editor.insertBefore(caretBlock, figure.nextSibling);
+                    } else {
+                        editor.appendChild(caretBlock);
+                    }
+                }
+                normalizeMarkup();
+                placeCaretAtStart(caretBlock);
+                scheduleCaretIntoView();
+                pushUpdate({ immediate: true });
+            }
+
+            function applyCommand(command) {
+                if (isReadOnly) {
+                    return;
+                }
+                focusEditor();
+                switch (command) {
+                    case 'heading':
+                        toggleBlockFormat('h2');
+                        break;
+                    case 'center':
+                        toggleCenter();
+                        break;
+                    case 'bullet':
+                        document.execCommand('insertUnorderedList');
+                        break;
+                    case 'bold':
+                        document.execCommand('bold');
+                        break;
+                    case 'quote':
+                        toggleBlockFormat('blockquote');
+                        break;
+                    case 'todo':
+                        insertTodoList();
+                        break;
+                    case 'ordered':
+                        document.execCommand('insertOrderedList');
+                        break;
+                    case 'toggleTodoState':
+                        toggleTodoState();
+                        break;
+                    default:
+                        break;
+                }
+                normalizeMarkup();
+                rememberSelection();
+                scheduleCaretIntoView();
+                pushUpdate({ immediate: true });
+            }
+
+            editor.addEventListener('beforeinput', rememberSelection);
+            editor.addEventListener('click', (event) => {
+                if (isReadOnly) {
+                    return;
+                }
+                const item = todoCheckboxHit(event);
+                if (!item) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                toggleTodoItem(item);
+            });
+            editor.addEventListener('compositionstart', () => {
+                isComposing = true;
+                rememberSelection();
+            });
+            editor.addEventListener('compositionend', () => {
+                isComposing = false;
+                rememberSelection();
+                scheduleCaretIntoView();
+                pushUpdate({ immediate: true });
+            });
+            editor.addEventListener('input', (event) => {
+                rememberSelection();
+                scheduleCaretIntoView();
+                const inputType = event && event.inputType ? event.inputType : '';
+                const shouldPushImmediately =
+                    inputType === 'insertParagraph' ||
+                    inputType === 'insertLineBreak';
+                pushUpdate({
+                    debounce: shouldPushImmediately ? 0 : 180,
+                    immediate: shouldPushImmediately
+                });
+            });
+            editor.addEventListener('blur', () => {
+                setEditorFocusState(false);
+                rememberSelection();
+                pushUpdate({ normalize: true, immediate: true });
+            });
+            editor.addEventListener('focus', () => {
+                setEditorFocusState(true);
+                rememberSelection();
+                syncEmptyState();
+                scheduleCaretIntoView();
+            });
+            editor.addEventListener('keyup', rememberSelection);
+            editor.addEventListener('mouseup', () => {
+                rememberSelection();
+                scheduleCaretIntoView();
+            });
+            editor.addEventListener('touchend', () => {
+                window.setTimeout(() => {
+                    rememberSelection();
+                    scheduleCaretIntoView();
+                }, 0);
+            });
+            document.addEventListener('selectionchange', () => {
+                if (selectionInsideEditor(window.getSelection())) {
+                    rememberSelection();
+                    scheduleCaretIntoView();
+                }
+            });
+            window.addEventListener('resize', scheduleCaretIntoView);
+            frame.addEventListener('click', (event) => {
+                if (!isReadOnly && event.target === frame) {
+                    focusEditor();
+                }
+            });
+            editor.addEventListener('paste', (event) => {
+                if (isReadOnly) {
+                    event.preventDefault();
+                    return;
+                }
+                event.preventDefault();
+                const text = (event.clipboardData || window.clipboardData).getData('text/plain');
+                document.execCommand('insertText', false, text);
+                pushUpdate({ normalize: true, immediate: true });
+            });
+            editor.addEventListener('drop', (event) => {
+                event.preventDefault();
+            });
+
+            window.SmartisanRichText = {
+                applyCommand,
+                insertImage,
+                focusEditor,
+                requestCommitSnapshot,
+                setHtml,
+                setReadOnly,
+                setTheme
+            };
+
+            setEditorFocusState(false);
+            setReadOnly(true);
+            editor.setAttribute('data-placeholder', '');
+            setHtml('');
+        })();
+    </script>
+</body>
+</html>

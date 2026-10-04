@@ -1,0 +1,135 @@
+<!-- v2.22.47 - Add a live heading outline without changing document contents. -->
+<style>
+html,body{margin:0;background:var(--bg);scroll-padding-top:180px}
+#desktop-tools{position:sticky;top:0;z-index:100;background:var(--card);padding:10px 20px;border-bottom:1px solid var(--line)}
+#desktop-tools .row{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:5px 0;min-width:0}
+#desktop-tools button{font-family:inherit;font-size:14px;line-height:1.4;min-height:36px;padding:7px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--text);cursor:pointer;white-space:nowrap}
+#desktop-tools button:hover:not(:disabled){background:var(--soft)}
+#desktop-tools button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#desktop-tools button:disabled{opacity:.55;cursor:default}
+#rich-outline{max-width:220px;min-height:36px;font:inherit;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px}
+#desktop-tools .primary,#desktop-tools .primary:hover:not(:disabled){background:var(--primary-bg);color:var(--primary-text);border-color:var(--primary-bg)}
+#doc-title{font-family:inherit;font-size:20px;font-weight:600;line-height:1.5;flex:1 1 160px;min-width:0;width:100%;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--text);padding:6px 0;outline:none;border-radius:0}
+#doc-title:focus{border-bottom-color:var(--accent)}
+#doc-title::placeholder{color:var(--sub);opacity:1}
+#rich-status{font-size:12px;line-height:1.5;color:var(--sub);margin-left:auto;overflow-wrap:anywhere}
+#frame{padding:20px;min-height:calc(100vh - 170px);border:0;border-radius:0}
+#editor{max-width:1000px;margin:0 auto;min-height:calc(100vh - 210px)}
+@media(max-width:640px){
+  #desktop-tools{padding:8px 12px}
+  #desktop-tools .row{gap:6px}
+  #desktop-tools button{padding:7px 10px}
+  #doc-title{flex-basis:100%;font-size:19px}
+  #rich-status{flex-basis:100%;margin-left:0}
+  #frame{padding:8px}
+  #editor{padding:14px;font-size:16px}
+  html,body{scroll-padding-top:260px}
+}
+@media(max-height:500px){
+  #desktop-tools{position:relative}
+  html,body{scroll-padding-top:16px}
+}
+</style>
+<header id="desktop-tools">
+  <div class="row"><input id="doc-title" aria-label="文档标题" placeholder="标题" autocomplete="off"><button id="save">保存</button><button id="finish" class="primary">保存并返回</button></div>
+  <div class="row" aria-label="文字格式">
+    <button data-command="heading">标题</button><button data-command="bold">加粗</button><button data-command="center">居中</button><button data-command="bullet">列表</button><button data-command="ordered">编号</button><button data-command="quote">引用</button><button data-command="todo">待办</button><button data-command="toggleTodoState">完成待办</button><button data-edit="undo">撤销</button><button data-edit="redo">重做</button><span id="rich-status" role="status">已保存</span>
+  </div>
+  <select id="rich-outline" aria-label="文档目录"><option value="">文档目录</option></select>
+</header>
+<script nonce="gridtimer-editor-v22135">
+(() => {
+  const initial = __RICH_EDITOR_INITIAL__;
+  if (['light', 'dark', 'oled'].includes(initial.theme)) document.documentElement.dataset.theme = initial.theme;
+  const title = document.getElementById('doc-title');
+  title.value = initial.title;
+  const status = document.getElementById('rich-status');
+  const outline = document.getElementById('rich-outline');
+  let headings = [];
+  const updateOutline = () => {
+    headings = [...document.querySelectorAll('#editor h1,#editor h2,#editor h3,#editor h4,#editor h5,#editor h6')];
+    outline.replaceChildren(new Option('文档目录', ''));
+    headings.forEach((heading, index) => outline.add(new Option(heading.textContent.trim().slice(0, 80) || '未命名标题', String(index))));
+    outline.disabled = !headings.length;
+  };
+  outline.addEventListener('change', () => {
+    if (outline.value === '') return;
+    const heading = headings[Number(outline.value)];
+    if (heading && heading.isConnected) {
+      heading.scrollIntoView({block:'center',behavior:'smooth'});
+      const range=document.createRange();range.selectNodeContents(heading);range.collapse(true);
+      const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+      document.getElementById('editor').focus({preventScroll:true});
+    }
+    outline.value='';
+  });
+  const send = (kind, payload, requestId) => {
+    window.ipc.postMessage(JSON.stringify({kind, html:payload.html || '', plain_text:payload.plain_text || '', title:title.value, request_id:requestId || ''}));
+  };
+  window.AndroidRichText = {
+    onContentChanged(raw) { status.textContent='未保存'; updateOutline(); send('change', JSON.parse(raw)); },
+    onCommitSnapshot(id, raw) { send('commit', JSON.parse(raw), id); },
+    onCaretChanged() {}
+  };
+  window.setHostStatus = message => { status.textContent = message; };
+  let pendingRequest = '';
+  let composing = new Set();
+  let compositionWait = 0;
+  const setClosing = closing => {
+    window.SmartisanRichText.setReadOnly(closing);
+    title.readOnly = closing;
+    document.querySelectorAll('#desktop-tools button').forEach(button => {button.disabled=closing;});
+    if (closing) status.textContent='正在保存';
+  };
+  window.unlockEditorAfterSaveFailure = () => {pendingRequest='';setClosing(false);};
+  const commit = id => {
+    if ((pendingRequest==='close' || pendingRequest==='shutdown') && id!=='shutdown') id=pendingRequest;
+    pendingRequest=id;
+    window.clearTimeout(compositionWait);
+    if (composing.size) {
+      status.textContent='正在提交输入法文字';
+      if (document.activeElement) document.activeElement.blur();
+      if (!composing.size) {commit(id);return;}
+      compositionWait=window.setTimeout(() => {
+        if (pendingRequest && composing.size) {pendingRequest='';status.textContent='请先完成输入法中的文字，再保存';send('composition-pending', {});}
+      }, 2000);
+      return;
+    }
+    pendingRequest='';
+    if (id==='close' || id==='shutdown') setClosing(true);
+    window.SmartisanRichText.requestCommitSnapshot(id);
+  };
+  window.requestHostSnapshot=commit;
+  document.addEventListener('compositionstart', event => {composing.add(event.target);}, true);
+  document.addEventListener('compositionend', event => {
+    composing.delete(event.target);
+    if (!composing.size && pendingRequest) {
+      const id=pendingRequest;
+      window.setTimeout(() => {if (pendingRequest===id) commit(id);}, 0);
+    } else if (!composing.size && event.target===title) {
+      window.setTimeout(() => commit('change'), 0);
+    }
+  }, true);
+  document.querySelectorAll('[data-command]').forEach(button => {
+    button.addEventListener('mousedown', event => event.preventDefault());
+    button.addEventListener('click', () => window.SmartisanRichText.applyCommand(button.dataset.command));
+  });
+  document.querySelectorAll('[data-edit]').forEach(button => {
+    button.addEventListener('mousedown', event => event.preventDefault());
+    button.addEventListener('click', () => { document.execCommand(button.dataset.edit); commit('save'); });
+  });
+  document.getElementById('save').addEventListener('click', () => commit('save'));
+  document.getElementById('finish').addEventListener('click', () => commit('close'));
+  title.addEventListener('input', event => {if (!event.isComposing && !composing.size) commit('change');});
+  document.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase()==='s') {event.preventDefault();commit('save');}
+    if (event.key==='Escape' && !event.isComposing && !composing.size) {event.preventDefault();commit('close');}
+  });
+  document.getElementById('editor').setAttribute('aria-label', '正文');
+  window.SmartisanRichText.setHtml(initial.html);
+  updateOutline();
+  window.SmartisanRichText.setReadOnly(false);
+  window.SmartisanRichText.focusEditor();
+  send('ready', {});
+})();
+</script>
