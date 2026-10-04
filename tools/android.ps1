@@ -1,3 +1,4 @@
+# v0.0.25 - Freeze the legal workflow verifier and require generated confirmation boundaries.
 # v0.0.24 - Require legal scan request settlement and retry business acceptance.
 # v0.0.23 - Require current-document loading and parenthesized formula business acceptance.
 # v0.0.22 - Freeze offline formula assets and verify Android answer rendering.
@@ -38,6 +39,7 @@ function Write-TaskJson([string]$Name, $Value) {
 }
 function Get-TaskInputs {
     $paths = @('app\build.gradle','gradle.properties','settings.gradle','native\gridtimer_native\Cargo.toml','native\gridtimer_native\Cargo.lock','tools\android.ps1','tools\publish_android_note.ps1','tools\verify_android_math_mutation.ps1','tools\verify_android_markdown_loading_mutation.ps1','tools\verify_legal_lifecycle_mutation.ps1') | ForEach-Object { Join-Path $taskRoot $_ }
+    if([version]$taskVersion -ge [version]'2.23.2.9'){$paths += Join-Path $taskRoot 'tools\verify_legal_workflow_mutation.ps1'}
     # Cargo gates timer_windows_client behind the desktop feature. Its private
     # desktop/ modules are not inputs to the Android library, generator or tests.
     # Shared library modules (including desktop_*.rs) remain in the snapshot.
@@ -133,6 +135,7 @@ try {
     $formatPaths += @('src\sourcegen\android_ai_workflow.rs','src\sourcegen\android_sync_failure.rs') | ForEach-Object { Join-Path $taskCrate $_ }
     $formatPaths += @('src\android_answer_render.rs','src\sourcegen\android_ai_answer_ui.rs') | ForEach-Object { Join-Path $taskCrate $_ }
     $formatPaths += Join-Path $taskCrate 'src\sourcegen\legal_risk_ui_source.rs'
+    if([version]$taskVersion -ge [version]'2.23.2.9'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_legal_workflow.rs'}
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
@@ -200,12 +203,14 @@ try {
     if($taskAiExpected -lt 1 -or [int]$taskAiJunit.testsuite.tests -ne $taskAiExpected -or [int]$taskAiJunit.testsuite.failures -ne 0 -or [int]$taskAiJunit.testsuite.errors -ne 0 -or [int]$taskAiJunit.testsuite.skipped -ne 0){throw 'Incomplete or failed AI connection state tests'}
     Copy-Item -LiteralPath $taskAiJunitPath -Destination (Join-Path $taskEvidence 'AiConnectionControllerTest.xml') -Force
     $taskAiWorkflowCounts = [ordered]@{}
-    foreach ($suite in @(
+    $taskWorkflowSuites = @(
         @{name='KnowledgeAiRequestBoundaryTest';package='ui';source='android_ai_workflow.rs'},
         @{name='UnboundSyncFailureTest';package='data';source='android_sync_failure.rs'},
         @{name='AndroidMarkdownRenderBoundaryTest';package='ui';source='android_ai_answer_ui.rs'},
         @{name='LegalSendReadyTest';package='ui';source='legal_risk_ui_source.rs'}
-    )) {
+    )
+    if([version]$taskVersion -ge [version]'2.23.2.9'){$taskWorkflowSuites += @{name='LegalAnalysisWorkflowTest';package='ui';source='android_legal_workflow.rs'}}
+    foreach ($suite in $taskWorkflowSuites) {
         $suiteSource = Get-Content -LiteralPath (Join-Path $taskCrate ('src\sourcegen\'+$suite.source)) -Raw
         $suiteBody = [regex]::Match($suiteSource, '(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;')
         if (!$suiteBody.Success) { throw 'AI workflow test literal is missing' }
@@ -228,6 +233,27 @@ try {
         Copy-Item -LiteralPath $suitePath -Destination (Join-Path $taskEvidence ($suite.name+'.xml')) -Force
         $taskAiWorkflowCounts[$suite.name] = $suiteExpected
     }
+    $taskLegalWorkflowIntegration = $null
+    if([version]$taskVersion -ge [version]'2.23.2.9'){
+        $workflowSourcePath='native/gridtimer_native/src/sourcegen/android_legal_workflow.rs'
+        $workflowVerifierPath='tools/verify_legal_workflow_mutation.ps1'
+        foreach($inputPath in @($workflowSourcePath,$workflowVerifierPath)){
+            if(@($before.files | Where-Object path -eq $inputPath).Count -ne 1){throw ('Legal workflow input was not frozen: '+$inputPath)}
+        }
+        $generator=Get-Content -LiteralPath (Join-Path $taskCrate 'src\bin\gridtimer_sourcegen.rs') -Raw
+        if(!$generator.Contains('android_legal_workflow::render(relative_path, contents)')){throw 'Final legal workflow transform is not connected to Android source generation'}
+        $gridRelative='app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/GridTimerScreen.kt'
+        $legalRelative='app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/LegalRiskScreen.kt'
+        $gridGenerated=Get-Content -LiteralPath (Join-Path $taskRoot $gridRelative) -Raw
+        $legalGenerated=Get-Content -LiteralPath (Join-Path $taskRoot $legalRelative) -Raw
+        if(!$gridGenerated.Contains('testTag("legal_open_analysis")') -or !$gridGenerated.Contains('usePlatformDefaultWidth = false') -or !$gridGenerated.Contains('LegalRiskScreen(')){throw 'Generated finance entry does not open the isolated legal workflow'}
+        foreach($tag in @('legal_primary_action','legal_confirm_send')){
+            if(!$legalGenerated.Contains('testTag("'+$tag+'")')){throw ('Generated legal workflow action is missing: '+$tag)}
+        }
+        if(!$legalGenerated.Contains('LegalSendConsent') -or !$legalGenerated.Contains('.beginRequest(') -or ([regex]::Matches($legalGenerated,'NativeOptimizerBridge\.runLegalScan\(')).Count -ne 1){throw 'Generated legal model request is not connected to the confirmation boundary'}
+        $taskLegalWorkflowIntegration=[ordered]@{passed=$true;finalTransformConnected=$true;isolatedEntryPresent=$true;primaryActionPresent=$true;explicitConfirmationPresent=$true;sendBoundaryPresent=$true;modelRequestSites=1;businessTests=$taskAiWorkflowCounts.LegalAnalysisWorkflowTest;hostOnly=$true;deviceVerified=$false;generatedFiles=@($gridRelative,$legalRelative | ForEach-Object {[ordered]@{path=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $taskRoot $_)).Hash.ToLowerInvariant()}})}
+        Write-TaskJson 'legal_workflow_generated_acceptance.json' $taskLegalWorkflowIntegration
+    }
     Copy-Item -LiteralPath (Join-Path $taskRoot 'app\build\reports\lint-results-release.xml') -Destination (Join-Path $taskEvidence 'lint-results-release.xml') -Force
     $apk = Join-Path $taskRoot "app\build\outputs\apk\release\tenfold_v$taskVersion.apk"
     $result = [ordered]@{schemaVersion=1;version=$taskVersion;mode=$Mode;passed=$true;noDeviceOperations=$true;sourceSnapshotSha256=$before.sha256;editingTests=$expectedTests;nativeArgumentEncoding=$taskNativeEncoding;completed=(Get-Date).ToUniversalTime().ToString('o');checks=@('rust_format','native_tests','sourcegen_tests','packager_tests','android_source_audit','android_jvm_tests','android_lint')}
@@ -241,6 +267,7 @@ try {
     $result['knowledgeRecoveryTests'] = $taskKnowledgeTestCounts
     $result['aiConnectionTests'] = $taskAiExpected
     $result['aiWorkflowTests'] = $taskAiWorkflowCounts
+    if($taskLegalWorkflowIntegration){$result['legalWorkflowIntegration']=$taskLegalWorkflowIntegration}
     $result['mathNativeTests'] = $taskMathTests.Count
     $result['mathNativeTestNames'] = $taskMathTests
     if($Mode -eq 'build'){

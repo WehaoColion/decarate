@@ -36,6 +36,8 @@ mod android_knowledge_compat;
 mod android_knowledge_filters;
 #[path = "../sourcegen/android_legal_integration.rs"]
 mod android_legal_integration;
+#[path = "../sourcegen/android_legal_workflow.rs"]
+mod android_legal_workflow;
 #[path = "../sourcegen/android_local_startup.rs"]
 mod android_local_startup;
 #[path = "../sourcegen/android_note_background.rs"]
@@ -522,6 +524,9 @@ fn write_source(output_root: &Path, relative_path: &str, contents: &str) -> io::
         fs::create_dir_all(parent)?;
     }
 
+    // Apply the legal workflow last, including the separately emitted screen and tests.
+    let contents = android_legal_workflow::render(relative_path, contents)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = contents
         .replace("十倍率", "tenfold")
         .replace("grid_timer_data_", "tenfold_data_")

@@ -1,3 +1,4 @@
+# v2.23.2.9 - Bind legal workflow authorization mutations and generated actions to the signed APK.
 # v2.23.2.8 - Gate legal request lifecycle tests, settlement mutation and packaged boundary.
 # v2.23.2.7 - Gate current-document loading, formula completion and actual loading mutations.
 # v2.23.2.6 - Verify offline formula assets, safe rendering and renderer boundaries.
@@ -31,6 +32,7 @@ if($provenance.sha256 -ne $build.sourceSnapshotSha256){throw 'Source snapshot mi
 $aiAcceptance=$null
 $mathAcceptance=$null
 $legalAcceptance=$null
+$legalWorkflowAcceptance=$null
 if($releaseVersion -eq '2.23.2'){
     if($build.knowledgeRecoveryTests.NoteCollectionRecoveryTest -ne 6 -or $build.knowledgeRecoveryTests.KnowledgeFilterStateTest -ne 4){throw 'Knowledge recovery business acceptance missing'}
     $mutation=Get-Content -LiteralPath (Join-Path $evidence 'knowledge_recovery_mutation/mutation_result.json') -Raw | ConvertFrom-Json
@@ -239,6 +241,63 @@ if([version]$releaseVersion -ge [version]'2.23.2.8'){
     }
     $legalAcceptance=[ordered]@{businessTests=13;mutationPassed=$true;sourceSha256=$legalSource[0].sha256;verifierSha256=$legalVerifier[0].sha256;hostOnly=$true;deviceVerified=$false}
 }
+if([version]$releaseVersion -ge [version]'2.23.2.9'){
+    $workflowSourcePath='native/gridtimer_native/src/sourcegen/android_legal_workflow.rs'
+    $workflowVerifierPath='tools/verify_legal_workflow_mutation.ps1'
+    $workflowBaseSourcePath='native/gridtimer_native/src/sourcegen/legal_risk_ui_source.rs'
+    $workflowSource=@($provenance.files | Where-Object path -eq $workflowSourcePath)
+    $workflowVerifier=@($provenance.files | Where-Object path -eq $workflowVerifierPath)
+    $workflowBaseSource=@($provenance.files | Where-Object path -eq $workflowBaseSourcePath)
+    $workflowMutation=Get-Content -LiteralPath (Join-Path $evidence 'legal_workflow_mutation/receipt.json') -Raw | ConvertFrom-Json
+    $workflowActual=Get-Content -LiteralPath (Join-Path $releaseRoot $workflowSourcePath) -Raw
+    $workflowHelperLiteral=[regex]::Match($workflowActual,'(?s)pub const HELPERS:\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+    $workflowTestLiteral=[regex]::Match($workflowActual,'(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+    if(!$workflowHelperLiteral.Success -or !$workflowTestLiteral.Success){throw 'Rust-owned legal workflow helper or tests are missing'}
+    $workflowHelperText=$workflowHelperLiteral.Groups['body'].Value.Replace("`r`n","`n")
+    $workflowTestText=$workflowTestLiteral.Groups['body'].Value.Replace("`r`n","`n")
+    $workflowTestNames=@([regex]::Matches($workflowTestText,'@Test\s+fun\s+(\w+)\s*\(') | ForEach-Object {$_.Groups[1].Value})
+    [xml]$workflowTests=Get-Content -LiteralPath (Join-Path $evidence 'LegalAnalysisWorkflowTest.xml') -Raw
+    if($workflowTestNames.Count -lt 1 -or $build.aiWorkflowTests.LegalAnalysisWorkflowTest -ne $workflowTestNames.Count -or [int]$workflowTests.testsuite.tests -ne $workflowTestNames.Count -or [int]$workflowTests.testsuite.failures -ne 0 -or [int]$workflowTests.testsuite.errors -ne 0 -or [int]$workflowTests.testsuite.skipped -ne 0){throw 'Legal workflow formal business tests are incomplete or failed'}
+    if($workflowSource.Count -ne 1 -or $workflowVerifier.Count -ne 1 -or $workflowBaseSource.Count -ne 1 -or !$workflowMutation.passed -or !$workflowMutation.productionUnchanged -or $workflowMutation.version -ne $releaseVersion -or $workflowMutation.sourcePath -ne $workflowSourcePath -or $workflowMutation.sourceSha256Before -cne $workflowSource[0].sha256 -or $workflowMutation.sourceSha256After -cne $workflowSource[0].sha256 -or $workflowMutation.verifierPath -ne $workflowVerifierPath -or $workflowMutation.verifierSha256 -cne $workflowVerifier[0].sha256 -or $workflowMutation.baseSourcePath -ne $workflowBaseSourcePath -or $workflowMutation.baseSourceSha256Before -cne $workflowBaseSource[0].sha256 -or $workflowMutation.baseSourceSha256After -cne $workflowBaseSource[0].sha256 -or $workflowMutation.tests -ne $workflowTestNames.Count -or $workflowMutation.cases.Count -ne 6 -or @($workflowMutation.cases | Where-Object {!$_.passed -or $_.compileExit -ne 0 -or !$_.allBusinessTestsObserved}).Count){throw 'Legal workflow mutation is unrelated to the frozen source or business tests'}
+    $workflowBaseHelperText=$legalUiText.Substring($legalStart,$legalEnd-$legalStart)
+    $workflowCompiledHelperText=$legalHelperText+$workflowHelperText
+    $workflowCompiledTestText="package com.ofairyo.gridtimer.ui`nimport org.junit.Test`nimport org.junit.Assert.assertTrue`nimport org.junit.Assert.assertFalse`n"+$workflowTestText
+    foreach($literal in @(@{text=$workflowHelperText;hash=$workflowMutation.workflowHelperSha256},@{text=$workflowTestText;hash=$workflowMutation.testsSha256},@{text=$workflowBaseHelperText;hash=$workflowMutation.baseHelperSha256},@{text=$workflowCompiledHelperText;hash=$workflowMutation.helperSha256},@{text=$workflowCompiledTestText;hash=$workflowMutation.compiledTestSha256})){
+        $actual=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($literal.text))).ToLowerInvariant()
+        if($actual -cne $literal.hash){throw 'Legal workflow mutation compiled a different Rust-owned helper or test body'}
+    }
+    if($workflowMutation.testNames.Count -ne $workflowTestNames.Count){throw 'Legal workflow mutation test inventory differs from the actual Rust-owned suite'}
+    foreach($testName in $workflowTestNames){
+        if(@($workflowTests.testsuite.testcase | Where-Object name -eq $testName).Count -ne 1 -or $testName -notin $workflowMutation.testNames){throw ('Legal workflow business test is missing: '+$testName)}
+    }
+    foreach($caseName in @('baseline','cosmetic','removedSendAuthorization','removedConfigurationBinding','removedReadinessGuard','restored')){
+        $case=@($workflowMutation.cases | Where-Object name -eq $caseName)
+        if($case.Count -ne 1 -or $null -eq $case[0].testExit -or $case[0].testsSha256 -cne $workflowMutation.testsSha256 -or $case[0].compiledTestSha256 -cne $workflowMutation.compiledTestSha256){throw ('Legal workflow mutation case or original test body is missing: '+$caseName)}
+        $compileLog=Join-Path $evidence ('legal_workflow_mutation/'+$caseName+'/compile.log')
+        $testLog=Join-Path $evidence ('legal_workflow_mutation/'+$caseName+'/tests.log')
+        if((Get-FileHash -LiteralPath $compileLog).Hash.ToLowerInvariant() -cne $case[0].compileLogSha256 -or (Get-FileHash -LiteralPath $testLog).Hash.ToLowerInvariant() -cne $case[0].testLogSha256){throw ('Legal workflow mutation evidence changed: '+$caseName)}
+        $log=Get-Content -LiteralPath $testLog -Raw
+        if($caseName -in @('baseline','cosmetic','restored')){
+            if(!$case[0].expectedPass -or $case[0].testExit -ne 0 -or !$log.Contains("OK ($($workflowTestNames.Count) tests)")){throw ('Legal workflow baseline, cosmetic or restored case failed: '+$caseName)}
+            if(($caseName -ne 'cosmetic' -and $case[0].helperSha256 -cne $workflowMutation.helperSha256) -or ($caseName -eq 'cosmetic' -and $case[0].helperSha256 -ceq $workflowMutation.helperSha256)){throw 'Legal workflow cosmetic or restored helper identity is invalid'}
+        }else{
+            $required=$case[0].requiredFailureTest
+            if($case[0].expectedPass -or $case[0].testExit -eq 0 -or !$case[0].requiredFailureObserved -or $required -notin $workflowTestNames -or !$log.Contains($required+'(com.ofairyo.gridtimer.ui.LegalAnalysisWorkflowTest)') -or !$log.Contains('java.lang.AssertionError') -or !$log.Contains("Tests run: $($workflowTestNames.Count),") -or $case[0].helperSha256 -ceq $workflowMutation.helperSha256){throw ('Removing a legal send authorization guard did not fail a business test: '+$caseName)}
+            $requiredTest=@{removedSendAuthorization='requestOwnershipRequiresFreshBoundSingleUseAuthorization';removedConfigurationBinding='changedScanEndpointModelOrKeyCannotReuseConsent';removedReadinessGuard='busyOrStalePreviewCannotBeConfirmed'}[$caseName]
+            if($required -ne $requiredTest){throw ('Legal authorization mutation did not exercise its required production boundary: '+$caseName)}
+        }
+    }
+    $workflowIntegration=Get-Content -LiteralPath (Join-Path $evidence 'legal_workflow_generated_acceptance.json') -Raw | ConvertFrom-Json
+    if(!$workflowIntegration.passed -or !$workflowIntegration.finalTransformConnected -or !$workflowIntegration.isolatedEntryPresent -or !$workflowIntegration.primaryActionPresent -or !$workflowIntegration.explicitConfirmationPresent -or !$workflowIntegration.sendBoundaryPresent -or $workflowIntegration.modelRequestSites -ne 1 -or $workflowIntegration.businessTests -ne $workflowTestNames.Count -or !$build.legalWorkflowIntegration.passed){throw 'Generated legal actions are not connected to the tested request boundary'}
+    $workflowGeneratedPaths=@('app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/GridTimerScreen.kt','app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/LegalRiskScreen.kt')
+    if($workflowIntegration.generatedFiles.Count -ne $workflowGeneratedPaths.Count){throw 'Generated legal workflow file inventory is incomplete'}
+    foreach($generatedPath in $workflowGeneratedPaths){
+        $generatedFile=@($workflowIntegration.generatedFiles | Where-Object path -eq $generatedPath)
+        $builtGeneratedFile=@($build.legalWorkflowIntegration.generatedFiles | Where-Object path -eq $generatedPath)
+        if($generatedFile.Count -ne 1 -or $builtGeneratedFile.Count -ne 1 -or $generatedFile[0].sha256 -cne $builtGeneratedFile[0].sha256 -or (Get-FileHash -LiteralPath (Join-Path $releaseRoot $generatedPath)).Hash.ToLowerInvariant() -cne $generatedFile[0].sha256){throw 'Generated legal workflow source changed after the formal build'}
+    }
+    $legalWorkflowAcceptance=[ordered]@{businessTests=$workflowTestNames.Count;mutationPassed=$true;sourceSha256=$workflowSource[0].sha256;verifierSha256=$workflowVerifier[0].sha256;baseSourceSha256=$workflowBaseSource[0].sha256;explicitConfirmationVerified=$true;generatedSourceConnected=$true;hostOnly=$true;deviceVerified=$false}
+}
 $hash=(Get-FileHash -LiteralPath $apk).Hash.ToLowerInvariant()
 if($hash -ne $build.apkSha256){throw 'APK changed after verification'}
 $publishedApk=@($manifest.files | Where-Object role -eq 'apk')
@@ -314,6 +373,7 @@ try {
         }
     }
     if($legalAcceptance){$dexNames['LegalScanRequestBoundary']=$false;$dexNames['LegalRiskScreenKt']=$false}
+    if($legalWorkflowAcceptance){$dexNames['LegalSendConsent']=$false;$dexNames['LegalPrimaryAction']=$false;$dexNames['LegalActionState']=$false}
     try {
         foreach($abi in $abis){
             $entry=$zip.GetEntry("lib/$abi/libgridtimer_native.so")
@@ -440,6 +500,8 @@ if($Mode -eq 'verify' -and $manifest.androidRelease.version -ne $releaseVersion)
     $receipt=[ordered]@{passed=$true;version=$releaseVersion;versionCode=$releaseCode;sha256=$hash;certificateSha256=$certificate;upgradeCertificateUnchanged=$true;sourceSnapshotSha256=$build.sourceSnapshotSha256;alignment16KVerified=$true;nativeAbis=$abis;packagedUiClasses=$dexNames;formalApkOnly=$true;noDeviceOperations=$true;windowsVersion=$windowsVersion;windowsArtifactsUnchanged=$true;completed=(Get-Date).ToUniversalTime().ToString('o')}
     if($aiAcceptance){$receipt['aiConnectionAcceptance']=$aiAcceptance}
     if($mathAcceptance){$receipt['mathRenderingAcceptance']=$mathAcceptance}
+    if($legalAcceptance){$receipt['legalLifecycleAcceptance']=$legalAcceptance}
+    if($legalWorkflowAcceptance){$receipt['legalWorkflowAcceptance']=$legalWorkflowAcceptance}
     $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $evidence 'pre_publish_package_check.json') -Encoding utf8
     [pscustomobject]$receipt | Select-Object passed,version,versionCode,sha256
     return
@@ -458,5 +520,6 @@ $receipt=[ordered]@{passed=$true;version=$releaseVersion;versionCode=$releaseCod
 if($aiAcceptance){$receipt['aiConnectionAcceptance']=$aiAcceptance}
 if($mathAcceptance){$receipt['mathRenderingAcceptance']=$mathAcceptance}
 if($legalAcceptance){$receipt['legalLifecycleAcceptance']=$legalAcceptance}
+if($legalWorkflowAcceptance){$receipt['legalWorkflowAcceptance']=$legalWorkflowAcceptance}
 $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $evidence $(if($Mode -eq 'publish'){'delivery_receipt.json'}else{'post_publish_package_check.json'})) -Encoding utf8
 [pscustomobject]$receipt | Select-Object passed,version,versionCode,sha256
