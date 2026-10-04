@@ -9,7 +9,7 @@ $mathSourcePath=Join-Path $mathRoot $mathRelativeSource
 $mathReceiptDir=Join-Path $mathRoot "release_artifacts/verification/v$Version/math_render_mutation"
 New-Item -ItemType Directory -Force -Path $mathReceiptDir | Out-Null
 $mathOriginal=[IO.File]::ReadAllBytes($mathSourcePath)
-$mathOriginalText=[Text.Encoding]::UTF8.GetString($mathOriginal)
+$mathOriginalText=[Text.Encoding]::UTF8.GetString($mathOriginal).Replace("`r`n","`n")
 $mathBefore=(Get-FileHash -LiteralPath $mathSourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
 $mathTestNames=@(([regex]'(?m)#\[test\]\s*fn\s+(?<name>[A-Za-z0-9_]+)\s*\(').Matches($mathOriginalText) | ForEach-Object { $_.Groups['name'].Value })
 if($mathTestNames.Count -lt 5){throw 'Renderer business test coverage is missing'}
@@ -70,9 +70,18 @@ try{
     if([regex]::Matches($mathOriginalText,[regex]::Escape($cosmeticBefore)).Count -ne 1){throw 'Unique renderer cosmetic mutation marker is missing'}
     $mathCases+=Invoke-MathCase 'cosmetic' 'cosmetic' ($mathOriginalText.Replace($cosmeticBefore,$cosmeticAfter)) $false
     $rawHtmlGuard='        Event::Html(text) | Event::InlineHtml(text) => {'+[char]10+'            text_with_formulas(&text, &prefix, &formulas)'+[char]10+'        }'
-    if([regex]::Matches($mathOriginalText,[regex]::Escape($rawHtmlGuard)).Count -ne 1){throw 'Unique renderer raw HTML guard is missing'}
+    $androidBodyMarker='fn render_answer_body(content: &str) -> String {'
+    $windowsBodyMarker='pub fn render_windows_knowledge_math_body(content: &str) -> Option<String> {'
+    if([regex]::Matches($mathOriginalText,[regex]::Escape($androidBodyMarker)).Count -ne 1 -or [regex]::Matches($mathOriginalText,[regex]::Escape($windowsBodyMarker)).Count -ne 1){throw 'Renderer mutation function boundaries are missing or ambiguous'}
+    $androidBodyStart=$mathOriginalText.IndexOf($androidBodyMarker)
+    $windowsBodyStart=$mathOriginalText.IndexOf($windowsBodyMarker)
+    if($windowsBodyStart -le $androidBodyStart){throw 'Renderer mutation function boundaries are out of order'}
+    $androidBody=$mathOriginalText.Substring($androidBodyStart,$windowsBodyStart-$androidBodyStart)
+    if([regex]::Matches($androidBody,[regex]::Escape($rawHtmlGuard)).Count -ne 1){throw 'Unique Android renderer raw HTML guard is missing'}
+    $guardPosition=$androidBodyStart+$androidBody.IndexOf($rawHtmlGuard)
     $removedGuard='        Event::Html(text) | Event::InlineHtml(text) => vec![Event::Html(text)],'
-    $mathCases+=Invoke-MathCase 'missing_raw_html_guard' 'raw_html_guard_removed' ($mathOriginalText.Replace($rawHtmlGuard,$removedGuard)) $true $mathRequiredFailure
+    $androidGuardRemoved=$mathOriginalText.Substring(0,$guardPosition)+$removedGuard+$mathOriginalText.Substring($guardPosition+$rawHtmlGuard.Length)
+    $mathCases+=Invoke-MathCase 'missing_raw_html_guard' 'raw_html_guard_removed' $androidGuardRemoved $true $mathRequiredFailure
 }finally{
     Write-MathSourceBytes $mathOriginal
     foreach($name in $mathEnvironmentNames){[Environment]::SetEnvironmentVariable($name,$mathOldEnvironment[$name],'Process')}
@@ -91,7 +100,7 @@ try{
 }
 $mathAfter=(Get-FileHash -LiteralPath $mathSourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
 $mathPassed=$mathBefore -ceq $mathAfter -and $mathCases.Count -eq 4 -and @($mathCases | Where-Object {!$_.passed}).Count -eq 0
-$mathReceipt=[ordered]@{passed=$mathPassed;version=$Version;sourcePath=$mathRelativeSource;sourceSha256Before=$mathBefore;sourceSha256After=$mathAfter;productionUnchanged=($mathBefore -ceq $mathAfter);verifierPath='tools/verify_android_math_mutation.ps1';verifierSha256=(Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant();tests=$mathTestNames.Count;testNames=$mathTestNames;cases=$mathCases;networkRequests=0;noDeviceOperations=$true;checkedAt=[DateTimeOffset]::Now.ToString('o')}
+$mathReceipt=[ordered]@{passed=$mathPassed;version=$Version;sourcePath=$mathRelativeSource;sourceSha256Before=$mathBefore;sourceSha256After=$mathAfter;productionUnchanged=($mathBefore -ceq $mathAfter);verifierPath='tools/verify_android_math_mutation.ps1';verifierSha256=(Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant();mutationTarget='render_answer_body';tests=$mathTestNames.Count;testNames=$mathTestNames;cases=$mathCases;networkRequests=0;noDeviceOperations=$true;checkedAt=[DateTimeOffset]::Now.ToString('o')}
 [IO.File]::WriteAllText((Join-Path $mathReceiptDir 'receipt.json'),($mathReceipt | ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false))
 if(!$mathPassed){throw 'Android formula renderer mutation acceptance failed'}
 Write-Output "Android formula renderer mutation acceptance completed: $Version"
