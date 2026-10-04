@@ -1,3 +1,7 @@
+// v1.1.0.7 Windows - Keep legal actions visible and require one-shot send confirmation.
+#[path = "../desktop/legal_workflow.rs"]
+mod desktop_legal_workflow;
+
 include!("legal_report_store.rs");
 include!("legal_report_sync.rs");
 include!("legal_background.rs");
@@ -85,6 +89,9 @@ struct DesktopLegalRiskState {
     running: bool,
     outcome_rx: Option<mpsc::Receiver<DesktopLegalScanOutcome>>,
     cancel: Arc<AtomicBool>,
+    running_cancel: Option<Arc<AtomicBool>>,
+    running_binding: Option<desktop_legal_workflow::SendBinding>,
+    send_consent: Option<desktop_legal_workflow::SendConsent>,
     reports: Vec<DesktopLegalReportMeta>,
     reports_revision: u64,
     selected_report_id: String,
@@ -126,6 +133,9 @@ impl Default for DesktopLegalRiskState {
             running: false,
             outcome_rx: None,
             cancel: Arc::new(AtomicBool::new(false)),
+            running_cancel: None,
+            running_binding: None,
+            send_consent: None,
             reports: Vec::new(),
             reports_revision: 0,
             selected_report_id: String::new(),
@@ -142,22 +152,6 @@ impl Default for DesktopLegalRiskState {
             sync_retry_at: 0,
         }
     }
-}
-
-fn legal_can_send(
-    prepared: Option<&gridtimer_native::legal_scan::LegalScanPrepared>,
-    ai_key: &str,
-    model: &str,
-    recipient: Option<&str>,
-    state_unchanged: bool,
-    running: bool,
-) -> bool {
-    prepared.is_some_and(|scan| !scan.evidence.is_empty())
-        && !ai_key.trim().is_empty()
-        && !model.trim().is_empty()
-        && recipient.is_some_and(|host| !host.trim().is_empty())
-        && state_unchanged
-        && !running
 }
 
 fn legal_source_tombstoned(
@@ -303,13 +297,23 @@ impl TimerWindowsClient {
                         || self.finance_dirty
                         || self.theme_dirty
                 });
-        if changed_preparation
-            || (self.desktop_ui.legal_risk.running && !self.legal_snapshot_current())
-        {
+        let changed_send = self.desktop_ui.legal_risk.running
+            && (self.workspace_edit_locked()
+                || !self.legal_snapshot_current()
+                || self
+                    .desktop_ui
+                    .legal_risk
+                    .running_binding
+                    .as_ref()
+                    .is_some_and(|binding| self.legal_send_binding().as_ref() != Some(binding)));
+        if changed_preparation || changed_send {
             self.desktop_ui
                 .legal_risk
                 .cancel
                 .store(true, AtomicOrdering::Release);
+            if let Some(cancellation) = &self.desktop_ui.legal_risk.running_cancel {
+                cancellation.store(true, AtomicOrdering::Release);
+            }
         }
     }
 
@@ -516,6 +520,10 @@ impl TimerWindowsClient {
     }
 
     fn unlock_legal_note(&mut self) {
+        if !self.legal_send_readiness().can_prepare() {
+            self.desktop_ui.legal_risk.message = "扫描任务结束后才能加入新的解锁内容".into();
+            return;
+        }
         let id = self.desktop_ui.legal_risk.unlock_note_id.clone();
         let Some(note) = self
             .data
@@ -547,13 +555,19 @@ impl TimerWindowsClient {
 
     fn prepare_legal_risk(&mut self, ctx: &egui::Context) {
         self.ensure_legal_scope();
-        if !self.workspace_persistence_ready
-            || self.workspace_edit_locked()
-            || !self.background_work_is_allowed()
-        {
-            self.desktop_ui.legal_risk.message = "当前工作区暂不能固定扫描快照".into();
+        if !self.legal_send_readiness().can_prepare() {
+            self.desktop_ui.legal_risk.message = if self.desktop_ui.legal_risk.running {
+                "分析仍在结束，请稍后重试".into()
+            } else if self.desktop_ui.legal_risk.waiting_for_save
+                || self.desktop_ui.legal_risk.prepared_rx.is_some()
+            {
+                "正在准备扫描范围，请等待完成或取消准备".into()
+            } else {
+                "当前工作区暂不能固定扫描快照".into()
+            };
             return;
         }
+        self.desktop_ui.legal_risk.send_consent = None;
         self.desktop_ui
             .legal_risk
             .cancel
@@ -670,19 +684,83 @@ impl TimerWindowsClient {
         }
     }
 
-    fn start_legal_risk(&mut self, ctx: &egui::Context) {
+    fn legal_send_readiness(&self) -> desktop_legal_workflow::Readiness {
         let recipient = ai_client::legal_recipient_host(&self.sync.ai_base_url).ok();
-        let unchanged = self.legal_snapshot_current()
+        desktop_legal_workflow::Readiness {
+            has_evidence: self
+                .desktop_ui
+                .legal_risk
+                .preview
+                .as_ref()
+                .is_some_and(|scan| !scan.evidence.is_empty()),
+            configured: !self.sync.ai_api_key.trim().is_empty()
+                && !self.sync.ai_model.trim().is_empty()
+                && recipient.is_some(),
+            snapshot_current: self.legal_snapshot_current(),
+            workspace_ready: self.workspace_persistence_ready
+                && !self.workspace_edit_locked()
+                && self.background_work_is_allowed(),
+            preparing: self.desktop_ui.legal_risk.waiting_for_save
+                || self.desktop_ui.legal_risk.prepared_rx.is_some(),
+            running: self.desktop_ui.legal_risk.running,
+        }
+    }
+
+    fn legal_send_binding(&self) -> Option<desktop_legal_workflow::SendBinding> {
+        let prepared = self.desktop_ui.legal_risk.preview.as_ref()?;
+        let scan = json!([
+            self.desktop_ui.legal_risk.preview_digest,
+            prepared.manifest.workspace_id,
+            prepared.manifest.captured_at_epoch_millis,
+            prepared.manifest.evidence_count,
+            prepared.manifest.upload_bytes
+        ]);
+        let configuration = json!([
+            self.sync.ai_base_url.trim(),
+            self.sync.ai_model.trim(),
+            format!(
+                "{:x}",
+                Sha256::digest(self.sync.ai_api_key.trim().as_bytes())
+            )
+        ]);
+        Some(desktop_legal_workflow::SendBinding {
+            workspace: self.legal_scope(),
+            revision: self.data_version,
+            scan_fingerprint: format!("{:x}", Sha256::digest(scan.to_string().as_bytes())),
+            configuration_fingerprint: format!(
+                "{:x}",
+                Sha256::digest(configuration.to_string().as_bytes())
+            ),
+        })
+    }
+
+    fn request_legal_send_confirmation(&mut self) -> bool {
+        if !self.legal_send_readiness().can_send() {
+            self.desktop_ui.legal_risk.message = "请先核对扫描范围、AI 配置和当前资料".into();
+            return false;
+        }
+        let Some(binding) = self.legal_send_binding() else {
+            return false;
+        };
+        self.desktop_ui.legal_risk.send_consent =
+            Some(desktop_legal_workflow::SendConsent::new(binding));
+        true
+    }
+
+    fn start_legal_risk(&mut self, ctx: &egui::Context) {
+        let Some(mut consent) = self.desktop_ui.legal_risk.send_consent.take() else {
+            self.desktop_ui.legal_risk.message = "请先确认本次发送的接收方和资料范围".into();
+            return;
+        };
+        let Some(binding) = self.legal_send_binding() else {
+            return;
+        };
+        // Authorization is consumed before acquiring a worker or sending any request.
+        let mut readiness = self.legal_send_readiness();
+        readiness.snapshot_current = readiness.snapshot_current
             && format!("{:x}", Sha256::digest(self.state_json.as_bytes()))
                 == self.desktop_ui.legal_risk.preview_digest;
-        if !legal_can_send(
-            self.desktop_ui.legal_risk.preview.as_deref(),
-            &self.sync.ai_api_key,
-            &self.sync.ai_model,
-            recipient.as_deref(),
-            unchanged,
-            self.desktop_ui.legal_risk.running,
-        ) {
+        if !consent.consume(&binding, readiness) {
             self.desktop_ui.legal_risk.message = "请先核对扫描范围、AI 配置和当前资料".into();
             return;
         }
@@ -698,6 +776,8 @@ impl TimerWindowsClient {
         let model = self.sync.ai_model.clone();
         let cancellation = Arc::clone(&self.desktop_ui.legal_risk.cancel);
         self.desktop_ui.legal_risk.running = true;
+        self.desktop_ui.legal_risk.running_cancel = Some(Arc::clone(&cancellation));
+        self.desktop_ui.legal_risk.running_binding = Some(binding);
         self.desktop_ui.legal_risk.outcome_rx = Some(rx);
         self.desktop_ui.legal_risk.message = "正在分析，取消后不再发送后续记录".into();
         let wake = DesktopLegalTaskWake(ctx.clone());
@@ -714,6 +794,15 @@ impl TimerWindowsClient {
                     &gridtimer_native::legal_sources::verified_laws(),
                     |_, _| !cancellation.load(AtomicOrdering::Acquire) && !token.is_cancelled(),
                 );
+                let analysis_error = (!report.completed).then(|| {
+                    format!(
+                        "分析未完成：{}",
+                        report
+                            .errors
+                            .first()
+                            .map_or("请查看报告中的未覆盖项", String::as_str)
+                    )
+                });
                 let id = new_legal_report_id();
                 let saved = DesktopLegalReportStore::open(&state_path, &scope).and_then(|store| {
                     serde_json::to_vec(&report)
@@ -725,11 +814,13 @@ impl TimerWindowsClient {
                     version,
                     cancellation,
                     saved_report_id: saved.as_ref().ok().map(|_| id),
-                    error: saved.err(),
+                    error: saved.err().or(analysis_error),
                 });
             },
         ) {
             self.desktop_ui.legal_risk.running = false;
+            self.desktop_ui.legal_risk.running_cancel = None;
+            self.desktop_ui.legal_risk.running_binding = None;
             self.desktop_ui.legal_risk.outcome_rx = None;
             self.desktop_ui.legal_risk.message = format!("无法启动分析：{error}");
         }
@@ -742,6 +833,8 @@ impl TimerWindowsClient {
         match rx.try_recv() {
             Ok(outcome) => {
                 self.desktop_ui.legal_risk.running = false;
+                self.desktop_ui.legal_risk.running_cancel = None;
+                self.desktop_ui.legal_risk.running_binding = None;
                 if outcome.scope == self.legal_scope() {
                     let current = outcome.version == self.data_version
                         && self.legal_snapshot_current()
@@ -766,6 +859,8 @@ impl TimerWindowsClient {
             Err(mpsc::TryRecvError::Empty) => self.desktop_ui.legal_risk.outcome_rx = Some(rx),
             Err(mpsc::TryRecvError::Disconnected) => {
                 self.desktop_ui.legal_risk.running = false;
+                self.desktop_ui.legal_risk.running_cancel = None;
+                self.desktop_ui.legal_risk.running_binding = None;
                 self.desktop_ui.legal_risk.message = "分析任务意外中断".into();
             }
         }
@@ -810,6 +905,10 @@ impl TimerWindowsClient {
             .legal_risk
             .cancel
             .store(true, AtomicOrdering::Release);
+        if let Some(cancellation) = &self.desktop_ui.legal_risk.running_cancel {
+            cancellation.store(true, AtomicOrdering::Release);
+        }
+        self.desktop_ui.legal_risk.send_consent = None;
         self.desktop_ui.legal_risk.open = false;
         self.desktop_ui.legal_risk.preview = None;
         self.desktop_ui.legal_risk.selected_report = None;
@@ -905,25 +1004,69 @@ impl TimerWindowsClient {
         ui.label(
             "按中国大陆法律寻找待核查线索。报告不是违法认定；未形成线索也不等于没有法律风险。",
         );
-        ui.label("登录后，最终报告会保存到同步服务的数据库及备份，服务可读取报告正文。原始扫描资料只在点击“发送并分析”后发给下方显示的 AI 接口。");
         if !self.desktop_ui.legal_risk.message.is_empty() {
             ui.label(
                 egui::RichText::new(&self.desktop_ui.legal_risk.message).color(palette().muted),
             );
         }
         ui.add_space(10.0);
-        self.ui_legal_unlock(ui);
-        ui.add_space(10.0);
-        if ui
-            .add_enabled(
-                !self.desktop_ui.legal_risk.running
-                    && !self.desktop_ui.legal_risk.waiting_for_save
-                    && self.desktop_ui.legal_risk.prepared_rx.is_none(),
-                egui::Button::new("核对扫描范围"),
-            )
-            .clicked()
-        {
+        let ready = self.legal_send_readiness();
+        let mut prepare = false;
+        let mut send = false;
+        let mut cancel = false;
+        let mut settings = false;
+        ui.horizontal_wrapped(|ui| {
+            prepare = ui
+                .add_enabled(
+                    ready.can_prepare(),
+                    egui::Button::new(desktop_legal_workflow::PREPARE_ACTION_LABEL),
+                )
+                .clicked();
+            if self.desktop_ui.legal_risk.preview.is_some() {
+                send = ui
+                    .add_enabled(
+                        ready.can_send(),
+                        egui::Button::new("发送并开始分析")
+                            .fill(palette().accent)
+                            .min_size(egui::vec2(170.0, 36.0)),
+                    )
+                    .clicked();
+            }
+            if ready.running {
+                cancel = ui.button("停止后续发送").clicked();
+            }
+            settings = ui.small_button("AI 连接设置").clicked();
+            if self.desktop_ui.legal_risk.preview.is_some() && !ready.configured {
+                ui.colored_label(palette().warn, "请在“我的 → AI”填写连接配置");
+            } else if self.desktop_ui.legal_risk.preview.is_some() && !ready.snapshot_current {
+                ui.colored_label(palette().warn, "资料已变化，请重新整理");
+            } else if self.desktop_ui.legal_risk.preview.is_some() && !ready.has_evidence {
+                ui.colored_label(palette().warn, "没有可读取的资料，请查看未覆盖项");
+            }
+        });
+        if prepare {
             self.prepare_legal_risk(ui.ctx());
+        }
+        if send {
+            self.request_legal_send_confirmation();
+        }
+        if cancel {
+            self.task_supervisor
+                .cancel_kinds(&[RuntimeTaskKind::LegalScan]);
+            if let Some(cancellation) = &self.desktop_ui.legal_risk.running_cancel {
+                cancellation.store(true, AtomicOrdering::Release);
+            }
+            self.desktop_ui
+                .legal_risk
+                .cancel
+                .store(true, AtomicOrdering::Release);
+            self.desktop_ui.legal_risk.message = "已停止后续发送，正在等待在途请求结束".into();
+        }
+        if settings {
+            self.close_legal_risk();
+            self.switch_tab(AppTab::My);
+            self.ai_settings_expanded = true;
+            return;
         }
         if self.desktop_ui.legal_risk.waiting_for_save
             || self.desktop_ui.legal_risk.prepared_rx.is_some()
@@ -940,11 +1083,84 @@ impl TimerWindowsClient {
                 }
             });
         }
-        if let Some(prepared) = self.desktop_ui.legal_risk.preview.clone() {
-            self.ui_legal_preview(ui, &prepared);
+        ui.separator();
+        // Only details scroll; the preparation, send and cancel actions remain visible.
+        egui::ScrollArea::vertical()
+            .id_source("legal_risk_details")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.label("登录后，报告会保存到同步服务及备份。原始扫描资料在你确认发送后发给所示 AI 接口。");
+                self.ui_legal_unlock(ui);
+                if let Some(prepared) = self.desktop_ui.legal_risk.preview.clone() {
+                    self.ui_legal_preview(ui, &prepared);
+                }
+                ui.add_space(18.0);
+                self.ui_legal_reports(ui);
+            });
+    }
+
+    fn ui_legal_send_confirmation(&mut self, ctx: &egui::Context) {
+        if self.desktop_ui.legal_risk.send_consent.is_none() {
+            return;
         }
-        ui.add_space(18.0);
-        self.ui_legal_reports(ui);
+        let current = self.legal_send_binding();
+        let ready = self.legal_send_readiness().can_send()
+            && current.as_ref().is_some_and(|binding| {
+                self.desktop_ui
+                    .legal_risk
+                    .send_consent
+                    .as_ref()
+                    .is_some_and(|consent| consent.matches(binding))
+            });
+        let mut send = false;
+        let mut cancel = false;
+        egui::Window::new("确认本次 AI 分析")
+            .id(egui::Id::new("legal_send_confirmation"))
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(480.0)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "接收方：{}",
+                    ai_client::legal_recipient_host(&self.sync.ai_base_url)
+                        .unwrap_or_else(|_| "配置无效".into())
+                ));
+                ui.label(format!("接口：{}", self.sync.ai_base_url));
+                ui.label(format!("模型：{}", self.sync.ai_model));
+                if let Some(prepared) = &self.desktop_ui.legal_risk.preview {
+                    ui.label(format!(
+                        "{} 项可读记录，约 {:.2} MiB，预计最多 {} 次调用",
+                        prepared.manifest.evidence_count,
+                        prepared.manifest.upload_bytes as f64 / 1_048_576.0,
+                        prepared.manifest.estimated_calls
+                    ));
+                    ui.label(format!(
+                        "资料快照：{}",
+                        desktop_local_timestamp(prepared.manifest.captured_at_epoch_millis)
+                    ));
+                }
+                ui.label("可能包含本人及他人的个人信息。确认后会消耗接口额度；取消会停止后续记录，在途请求仍需结束。");
+                if ai_client::legal_recipient_host(&self.sync.ai_base_url)
+                    .is_ok_and(|host| host == "api.openai.com")
+                {
+                    ui.label("官方请求设置 store: false。");
+                } else {
+                    ui.label("服务的保存规则由接收方决定，请核对其数据规则。");
+                }
+                if !ready {
+                    ui.colored_label(palette().warn, "资料、工作区或配置已变化，请取消并重新核对。");
+                }
+                ui.horizontal(|ui| {
+                    cancel = ui.button("取消").clicked();
+                    send = ui.add_enabled(ready, egui::Button::new("确认发送并分析")).clicked();
+                });
+            });
+        if cancel {
+            self.desktop_ui.legal_risk.send_consent = None;
+        } else if send {
+            self.start_legal_risk(ctx);
+        }
     }
 
     fn ui_legal_unlock(&mut self, ui: &mut egui::Ui) {
@@ -985,7 +1201,8 @@ impl TimerWindowsClient {
                     );
                     if ui
                         .add_enabled(
-                            self.desktop_ui.legal_risk.store_rx.is_none()
+                            self.legal_send_readiness().can_prepare()
+                                && self.desktop_ui.legal_risk.store_rx.is_none()
                                 && self.desktop_ui.legal_risk.store_queue.is_empty(),
                             egui::Button::new("加入本次扫描"),
                         )
@@ -1088,30 +1305,7 @@ impl TimerWindowsClient {
                     }
                 }
             }
-            let unchanged = self.legal_snapshot_current();
-            let enabled = legal_can_send(
-                Some(prepared),
-                &self.sync.ai_api_key,
-                &self.sync.ai_model,
-                recipient.as_deref(),
-                unchanged,
-                self.desktop_ui.legal_risk.running,
-            );
-            if ui
-                .add_enabled(enabled, egui::Button::new("发送并分析"))
-                .clicked()
-            {
-                self.start_legal_risk(ui.ctx());
-            }
-            if self.desktop_ui.legal_risk.running && ui.button("取消后续发送").clicked() {
-                self.task_supervisor
-                    .cancel_kinds(&[RuntimeTaskKind::LegalScan]);
-                self.desktop_ui
-                    .legal_risk
-                    .cancel
-                    .store(true, AtomicOrdering::Release);
-            }
-            if !unchanged {
+            if !self.legal_snapshot_current() {
                 ui.label("资料已有变化，请重新核对扫描范围");
             }
             if recipient
@@ -1283,80 +1477,6 @@ mod legal_risk_tests {
         assert!(!legal_source_available_in_data(
             &data,
             "finance/month/2026-09/liabilities/loan"
-        ));
-    }
-
-    #[test]
-    fn send_requires_explicit_state_and_configuration() {
-        let mut prepared = gridtimer_native::legal_scan::LegalScanPrepared {
-            manifest: gridtimer_native::legal_scan::LegalScanManifest {
-                workspace_id: "scope".into(),
-                captured_at_epoch_millis: 1,
-                coverage: Default::default(),
-                omissions: vec![],
-                evidence_count: 1,
-                upload_bytes: 4,
-                estimated_calls: 2,
-            },
-            evidence: vec![gridtimer_native::legal_scan::LegalEvidence {
-                id: "E1".into(),
-                category: "任务".into(),
-                source_path: "slot/1".into(),
-                title: "任务".into(),
-                event_at_epoch_millis: None,
-                text: "内容".into(),
-                image_data_url: None,
-            }],
-            batches: vec![],
-        };
-        assert!(!legal_can_send(
-            None,
-            "key",
-            "model",
-            Some("example.com"),
-            true,
-            false
-        ));
-        assert!(!legal_can_send(
-            Some(&prepared),
-            "",
-            "model",
-            Some("example.com"),
-            true,
-            false
-        ));
-        assert!(!legal_can_send(
-            Some(&prepared),
-            "key",
-            "model",
-            Some("example.com"),
-            false,
-            false
-        ));
-        assert!(!legal_can_send(
-            Some(&prepared),
-            "key",
-            "model",
-            Some("example.com"),
-            true,
-            true
-        ));
-        assert!(legal_can_send(
-            Some(&prepared),
-            "key",
-            "model",
-            Some("example.com"),
-            true,
-            false
-        ));
-        prepared.evidence.clear();
-        assert!(!legal_can_send(
-            Some(&prepared),
-            "key",
-            "model",
-            Some("example.com"),
-            true,
-            false
         ));
     }
 }

@@ -1,3 +1,4 @@
+// v1.1.0.7 Windows - Add real provider question modes, bound consent and offline formula reading.
 // v1.1.0.3 Windows - Reuse the desktop entry and save drafts before handing off to a newer release.
 // v1.1.0.2 Windows - Load verified workspaces asynchronously and isolate content caches and legal tasks.
 // v1.0.3.17 Windows - Queue timer actions without blocking input and reuse navigation cache.
@@ -90,6 +91,7 @@ include!("../desktop/workspace_ui.rs");
 include!("../desktop/design_system.rs");
 include!("../desktop/navigation.rs");
 include!("../desktop/knowledge_ui.rs");
+include!("../desktop/ai_answer_ui.rs");
 include!("../desktop/knowledge_canvas.rs");
 include!("../desktop/knowledge_experience.rs");
 include!("../desktop/knowledge_workspace.rs");
@@ -1173,6 +1175,9 @@ struct PendingAiNoteResult {
 }
 
 struct KnowledgeAiTaskResult {
+    request_id: u64,
+    recipient_host: String,
+    model: String,
     origin_workspace: AiWorkspaceIdentity,
     question: String,
     source_ids: Vec<String>,
@@ -1183,6 +1188,9 @@ struct KnowledgeAiTaskResult {
 
 #[derive(Clone, Debug)]
 struct KnowledgeAiAnswer {
+    workspace_binding: String,
+    recipient_host: String,
+    model: String,
     question: String,
     content: String,
     source_ids: Vec<String>,
@@ -1449,6 +1457,7 @@ struct TimerWindowsClient {
     knowledge_ai_panel_open: bool,
     knowledge_ai_question_draft: String,
     knowledge_ai_scope_all: bool,
+    desktop_ai: DesktopAiSession,
     knowledge_ai_pending: bool,
     knowledge_ai_result_rx: Option<mpsc::Receiver<KnowledgeAiTaskResult>>,
     knowledge_ai_answer: Option<KnowledgeAiAnswer>,
@@ -1596,6 +1605,7 @@ impl TimerWindowsClient {
             knowledge_ai_panel_open: false,
             knowledge_ai_question_draft: String::new(),
             knowledge_ai_scope_all: true,
+            desktop_ai: DesktopAiSession::default(),
             knowledge_ai_pending: false,
             knowledge_ai_result_rx: None,
             knowledge_ai_answer: None,
@@ -4477,180 +4487,37 @@ impl TimerWindowsClient {
     }
 
     fn launch_knowledge_ai(&mut self) {
-        if !self.background_work_is_allowed() {
-            self.status = "窗口正在安全退出，未启动知识问答".to_string();
-            return;
-        }
-        if self.knowledge_ai_pending {
-            self.status = "知识问答正在处理上一条问题".to_string();
-            return;
-        }
-        if self.sync.ai_api_key.trim().is_empty() {
-            self.status = "请先在“我的”里填写模型 API Key".to_string();
-            return;
-        }
-        if !self.workspace_persistence_ready {
-            self.status = "本地数据库当前不可写，未调用模型".to_string();
-            return;
-        }
-        let question = self
-            .knowledge_ai_question_draft
-            .trim()
-            .chars()
-            .take(160)
-            .collect::<String>();
-        if question.is_empty() {
-            self.status = "先输入一个问题".to_string();
-            return;
-        }
-        if self.flush_note_draft().is_err() {
-            return;
-        }
-        let selected_folder_id = self
-            .data
-            .note_preferences
-            .selected_folder_id
-            .clone()
-            .unwrap_or_default();
-        let folder_names = self
-            .data
-            .note_folders
-            .iter()
-            .map(|folder| (folder.id.clone(), folder.name.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let mut candidates = self
-            .data
-            .notes
-            .iter()
-            .filter(|note| {
-                desktop_note_kind(note) == DesktopNoteKind::Document
-                    && note.deleted_at_epoch_millis.is_none()
-                    && note.encryption.is_none()
-                    && (self.knowledge_ai_scope_all
-                        || (!selected_folder_id.is_empty()
-                            && note.folder_id.as_deref() == Some(selected_folder_id.as_str())))
-            })
-            .map(|note| {
-                let folder = note
-                    .folder_id
-                    .as_ref()
-                    .and_then(|id| folder_names.get(id))
-                    .cloned()
-                    .unwrap_or_else(|| "未入库".to_string());
-                (
-                    note.id.clone(),
-                    note.title.clone(),
-                    desktop_note_document_text(&note.content, &note.document),
-                    folder,
-                )
-            })
-            .collect::<Vec<_>>();
-        if candidates.is_empty() {
-            self.status = if self.knowledge_ai_scope_all {
-                "没有可用于问答的未锁定知识文档".to_string()
-            } else {
-                "当前文件夹没有可用于问答的未锁定知识文档".to_string()
-            };
-            return;
-        }
-        let titles = candidates
-            .iter()
-            .map(|item| item.1.clone())
-            .collect::<Vec<_>>();
-        let bodies = candidates
-            .iter()
-            .map(|item| item.2.clone())
-            .collect::<Vec<_>>();
-        let folders = candidates
-            .iter()
-            .map(|item| item.3.clone())
-            .collect::<Vec<_>>();
-        let ranked =
-            gridtimer_native::rank_desktop_knowledge_sources(&question, &titles, &bodies, &folders);
-        let mut chosen = Vec::new();
-        let mut remaining_chars = 12_000usize;
-        for index in ranked.into_iter().take(5) {
-            let Some((id, title, body, folder)) = candidates.get_mut(index) else {
-                continue;
-            };
-            let excerpt = body.chars().take(remaining_chars).collect::<String>();
-            remaining_chars = remaining_chars.saturating_sub(excerpt.chars().count());
-            chosen.push((id.clone(), title.clone(), excerpt, folder.clone()));
-            if remaining_chars == 0 {
-                break;
-            }
-        }
-        if chosen.is_empty() {
-            self.status = "没有找到可回答该问题的来源".to_string();
-            return;
-        }
-        let source_ids = chosen.iter().map(|item| item.0.clone()).collect::<Vec<_>>();
-        let source_titles = chosen.iter().map(|item| item.1.clone()).collect::<Vec<_>>();
-        let source_excerpts = chosen.iter().map(|item| item.2.clone()).collect::<Vec<_>>();
-        let source_folders = chosen.iter().map(|item| item.3.clone()).collect::<Vec<_>>();
-        let origin_workspace = self.ai_workspace_identity();
-        let api_key = self.sync.ai_api_key.clone();
-        let base_url = self.sync.ai_base_url.clone();
-        let model = self.sync.ai_model.clone();
-        let task_question = question.clone();
-        let task_ids = source_ids.clone();
-        let task_titles = source_titles.clone();
-        let task_folders = source_folders.clone();
-        let (tx, rx) = mpsc::channel();
-        self.knowledge_ai_pending = true;
-        self.knowledge_ai_result_rx = Some(rx);
-        self.knowledge_ai_answer = None;
-        self.status = "正在查阅知识文档...".to_string();
-        if let Err(error) = self.task_supervisor.spawn(
-            RuntimeTaskKind::KnowledgeAiRequest,
-            TaskDurability::Ephemeral,
-            move |cancellation| {
-                if cancellation.is_cancelled() {
-                    return;
-                }
-                let result = ai_client::complete_knowledge_query(
-                    &api_key,
-                    &base_url,
-                    &model,
-                    &task_question,
-                    &source_titles,
-                    &source_folders,
-                    &source_excerpts,
-                );
-                if !cancellation.is_cancelled() {
-                    let _ = tx.send(KnowledgeAiTaskResult {
-                        origin_workspace,
-                        question: task_question,
-                        source_ids: task_ids,
-                        source_titles: task_titles,
-                        source_folders: task_folders,
-                        result,
-                    });
-                }
-            },
-        ) {
-            self.knowledge_ai_pending = false;
-            self.knowledge_ai_result_rx = None;
-            self.status = format!("知识问答后台任务无法启动：{error}");
+        if let Err(error) = self.prepare_desktop_ai_preview() {
+            self.desktop_ai.message = error.clone();
+            self.status = error;
         }
     }
 
     fn poll_knowledge_ai_result(&mut self) {
-        if self.rich_editor.active {
-            return;
-        }
+        self.observe_desktop_ai_scope();
+        self.poll_desktop_ai_probe();
         let Some(rx) = self.knowledge_ai_result_rx.take() else {
             return;
         };
+        let workspace = self.background_job_workspace_fingerprint();
+        let configuration = desktop_ai_configuration_binding(&self.sync);
         match rx.try_recv() {
             Ok(task) => {
                 self.knowledge_ai_pending = false;
-                if task.origin_workspace != self.ai_workspace_identity() {
-                    self.status = "知识问答结果属于已离开的工作区，已丢弃".to_string();
+                if !self
+                    .desktop_ai
+                    .boundary
+                    .finish(task.request_id, &workspace, &configuration)
+                    || task.origin_workspace != self.ai_workspace_identity()
+                {
+                    self.desktop_ai.message = "已取消或离开原配置，回答未应用到当前工作区".into();
                     return;
                 }
                 if task.result.ok {
                     self.knowledge_ai_answer = Some(KnowledgeAiAnswer {
+                        workspace_binding: workspace,
+                        recipient_host: task.recipient_host,
+                        model: task.model,
                         question: task.question,
                         content: task.result.content,
                         source_ids: task.source_ids,
@@ -4658,17 +4525,21 @@ impl TimerWindowsClient {
                         source_folders: task.source_folders,
                         received_at_epoch_millis: now_millis(),
                     });
-                    self.status = "知识问答已完成".to_string();
+                    self.desktop_ai.message = "AI 回答完成".into();
+                    self.status = self.desktop_ai.message.clone();
+                    self.open_desktop_ai_answer_reader();
                 } else {
-                    self.status = desktop_ai_message(&task.result.message);
+                    self.desktop_ai.message = desktop_ai_message(&task.result.message);
+                    self.status = self.desktop_ai.message.clone();
                 }
             }
-            Err(mpsc::TryRecvError::Empty) => {
-                self.knowledge_ai_result_rx = Some(rx);
-            }
+            Err(mpsc::TryRecvError::Empty) => self.knowledge_ai_result_rx = Some(rx),
             Err(mpsc::TryRecvError::Disconnected) => {
+                if let Some(id) = self.desktop_ai.boundary.active_id() {
+                    self.desktop_ai.boundary.finish(id, "", "");
+                }
                 self.knowledge_ai_pending = false;
-                self.status = "知识问答请求已中断".to_string();
+                self.desktop_ai.message = "本次请求已结束或中断，可重新发送".into();
             }
         }
     }
@@ -4704,6 +4575,11 @@ impl TimerWindowsClient {
         let Some(answer) = self.knowledge_ai_answer.clone() else {
             return;
         };
+        if answer.workspace_binding != self.background_job_workspace_fingerprint() {
+            self.knowledge_ai_answer = None;
+            self.desktop_ai.message = "回答属于已离开的工作区，未保存到当前资料".into();
+            return;
+        }
         if self.flush_note_draft().is_err() {
             return;
         }
@@ -4718,10 +4594,11 @@ impl TimerWindowsClient {
             .map(|(title, folder)| format!("- {title}（{folder}）"))
             .collect::<Vec<_>>()
             .join("\n");
-        self.note_blocks_draft = vec![
-            new_desktop_text_block(&answer.content),
-            new_desktop_text_block(&format!("## 来源\n{sources}")),
-        ];
+        self.note_blocks_draft = vec![new_desktop_text_block(&answer.content)];
+        if !sources.is_empty() {
+            self.note_blocks_draft
+                .push(new_desktop_text_block(&format!("## 来源\n{sources}")));
+        }
         self.note_active_block_id = self.note_blocks_draft[0].id.clone();
         self.refresh_note_content_from_canvas();
         self.mark_note_dirty();
@@ -7374,6 +7251,10 @@ impl TimerWindowsClient {
                     ui.add_enabled_ui(!self.workspace_edit_locked(), |ui| self.ui_knowledge(ui));
                     return;
                 }
+                if self.tab == AppTab::Finance && self.desktop_ui.legal_risk.open {
+                    ui.add_enabled_ui(!self.workspace_edit_locked(), |ui| self.ui_legal_risk(ui));
+                    return;
+                }
                 egui::ScrollArea::vertical()
                     .id_source((
                         "workspace_scroll",
@@ -7419,6 +7300,8 @@ impl TimerWindowsClient {
         if interactive || self.desktop_ui.experience.palette_open {
             self.ui_knowledge_quick_switch(ctx);
         }
+        self.ui_desktop_ai_preview(ctx);
+        self.ui_legal_send_confirmation(ctx);
         self.ui_timer_dialogs(ctx);
         self.ui_history_delete_dialog(ctx);
         self.ui_shutdown_dialog(ctx);
@@ -9643,33 +9526,84 @@ impl TimerWindowsClient {
 
     fn ui_my_ai_advanced(&mut self, ui: &mut egui::Ui) {
         ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("DeepSeek 官方").clicked() {
+                self.sync.ai_base_url = "https://api.deepseek.com".into();
+                self.sync.ai_model = "deepseek-flash".into();
+                self.invalidate_desktop_ai_configuration();
+                self.mark_sync_dirty();
+            }
+            if ui.button("打开平台：登录、充值、创建密钥").clicked() {
+                ui.ctx().open_url(egui::OpenUrl::new_tab(
+                    "https://platform.deepseek.com/api_keys",
+                ));
+            }
+        });
         if text_field_row(ui, "API Key", &mut self.sync.ai_api_key, true) {
+            self.invalidate_desktop_ai_configuration();
             self.mark_sync_dirty();
         }
-        if text_field_row(ui, "接口地址", &mut self.sync.ai_base_url, false) {
+        if text_field_row(ui, "接口根地址", &mut self.sync.ai_base_url, false) {
+            self.invalidate_desktop_ai_configuration();
             self.mark_sync_dirty();
         }
+        ui.label("不包含 /responses 或 /chat/completions");
         if text_field_row(ui, "模型", &mut self.sync.ai_model, false) {
+            self.invalidate_desktop_ai_configuration();
             self.mark_sync_dirty();
         }
-        if !self.sync.ai_last_message.is_empty() {
-            ui.label(
-                egui::RichText::new(&self.sync.ai_last_message)
-                    .size(12.0)
-                    .color(palette().muted),
-            );
+        let configured = desktop_ai_configured_recipient(&self.sync);
+        ui.label(match &configured {
+            Ok(host) => format!("接收方：{host}"),
+            Err(error) => error.clone(),
+        });
+        ui.label("连接测试只发送合成文字和图片，最多 1 次请求，会消耗少量额度；不发送个人资料。");
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(
+                    configured.is_ok() && !self.workspace_edit_locked(),
+                    egui::Button::new("保存配置"),
+                )
+                .clicked()
+            {
+                if self.flush_sync_draft().is_ok() {
+                    self.desktop_ai.probe_message = "配置已保存，可以进入 AI 功能".into();
+                } else {
+                    self.desktop_ai.probe_message = self.status.clone();
+                }
+            }
+            if ui
+                .add_enabled(
+                    configured.is_ok()
+                        && self.desktop_ai.probe_rx.is_none()
+                        && !self.workspace_edit_locked(),
+                    egui::Button::new(if self.desktop_ai.probe_rx.is_some() {
+                        "连接测试中…"
+                    } else {
+                        "保存并测试连接"
+                    }),
+                )
+                .clicked()
+            {
+                self.launch_desktop_ai_probe();
+            }
+        });
+        if !self.desktop_ai.probe_message.is_empty() {
+            ui.label(&self.desktop_ai.probe_message);
+        } else {
+            ui.label("尚未检测连接；保存有效配置后可直接使用 AI 功能。");
         }
     }
 
     fn ui_my_ai(&mut self, ui: &mut egui::Ui) {
-        let configured = !self.sync.ai_api_key.trim().is_empty();
+        let configured = desktop_ai_configured_recipient(&self.sync).is_ok();
         card_frame().show(ui, |ui| {
             ui.horizontal(|ui| {
-                section_heading(ui, "AI 设置");
+                section_heading(ui, "AI");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     pill(
                         ui,
-                        if configured { "已配置" } else { "未配置" },
+                        if configured { "已填写" } else { "待配置" },
                         palette().panel_alt,
                         if configured {
                             palette().good
@@ -9679,19 +9613,33 @@ impl TimerWindowsClient {
                     );
                 });
             });
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(format!("模型 {}", self.sync.ai_model))
-                    .size(13.0)
-                    .color(palette().muted),
-            );
-            ui.add_space(8.0);
+            ui.label(if self.desktop_ai.probe_ok {
+                "连接与所测能力已通过"
+            } else if configured {
+                "配置已填写；可使用下方入口，或先测试连接"
+            } else {
+                "先填写 API Key、接口根地址和模型"
+            });
+            ui.horizontal(|ui| {
+                if ui.button("直接问 AI").clicked() {
+                    self.open_desktop_ai_entry(QueryMode::Direct);
+                }
+                if ui.button("问知识库").clicked() {
+                    self.open_desktop_ai_entry(QueryMode::Knowledge);
+                }
+                if ui.button("法律风险线索").clicked() {
+                    self.switch_tab(AppTab::Finance);
+                    if self.tab == AppTab::Finance {
+                        self.desktop_ui.legal_risk.open = true;
+                    }
+                }
+            });
             if action_button(
                 ui,
                 if self.ai_settings_expanded {
-                    "收起 AI 设置"
+                    "收起连接设置"
                 } else {
-                    "AI 设置"
+                    "连接设置"
                 },
                 ButtonTone::Quiet,
             )
@@ -9700,7 +9648,6 @@ impl TimerWindowsClient {
                 self.ai_settings_expanded = !self.ai_settings_expanded;
             }
             if self.ai_settings_expanded {
-                ui.add_space(10.0);
                 self.ui_my_ai_advanced(ui);
             }
         });
@@ -19685,6 +19632,7 @@ mod tests {
     include!("../desktop/device_timer_sync_tests.rs");
     include!("../desktop/windows_audit_tests.rs");
     include!("../desktop/knowledge_tests.rs");
+    include!("../desktop/ai_answer_tests.rs");
     include!("../desktop/knowledge_canvas_tests.rs");
     include!("../desktop/performance_tests.rs");
     include!("../desktop/note_list_cache_tests.rs");
@@ -21730,6 +21678,7 @@ mod tests {
             knowledge_ai_panel_open: false,
             knowledge_ai_question_draft: String::new(),
             knowledge_ai_scope_all: true,
+            desktop_ai: DesktopAiSession::default(),
             knowledge_ai_pending: false,
             knowledge_ai_result_rx: None,
             knowledge_ai_answer: None,

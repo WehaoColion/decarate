@@ -1,5 +1,5 @@
 // v2.23.2.7 Android - Accept TeX whitespace while preserving dollar currency boundaries.
-// This module is never used by the Windows rich-text or knowledge renderer.
+// Android answer behavior stays independent; Windows can reuse the safe math parser.
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag, TagEnd};
 use rand::RngCore;
 use std::ops::Range;
@@ -233,6 +233,75 @@ fn render_answer_body(content: &str) -> String {
     body
 }
 
+/// Windows ordinary knowledge paragraphs opt in only when math is present.
+/// Keep Markdown links as parser events so HTML serialization escapes their
+/// attributes; raw HTML and non-HTTP(S) links never become active content.
+#[cfg(target_os = "windows")]
+pub fn render_windows_knowledge_math_body(content: &str) -> Option<String> {
+    // Fall back to the existing bounded renderer for oversized source text.
+    if content.len() > 4_000_000 {
+        return None;
+    }
+    let (markdown, prefix, formulas) = tokenize_math(content);
+    if formulas.is_empty() {
+        return None;
+    }
+    // A dollar/TeX sequence in a link destination or tooltip is URL/title
+    // syntax, not visible math. Let the existing renderer parse the original
+    // block so those values (including Markdown escapes) stay unchanged.
+    if Parser::new_ext(&markdown, markdown_options()).any(|event| {
+        matches!(event, Event::Start(Tag::Link { dest_url, title, .. })
+            if dest_url.contains(&prefix) || title.contains(&prefix))
+    }) {
+        return None;
+    }
+    let mut links = Vec::new();
+    let events = Parser::new_ext(&markdown, markdown_options()).flat_map(|event| match event {
+        Event::Html(text) | Event::InlineHtml(text) => {
+            text_with_formulas(&text, &prefix, &formulas)
+        }
+        Event::Start(tag @ Tag::Link { .. }) => {
+            let allowed = match &tag {
+                Tag::Link { dest_url, .. } => {
+                    !dest_url.chars().any(char::is_control)
+                        && url::Url::parse(dest_url).is_ok_and(|url| {
+                            matches!(url.scheme(), "http" | "https")
+                                && url.host_str().is_some()
+                                && url.username().is_empty()
+                                && url.password().is_none()
+                        })
+                }
+                _ => false,
+            };
+            links.push(allowed);
+            if allowed {
+                vec![Event::Start(tag)]
+            } else {
+                vec![Event::Html("<span>".into())]
+            }
+        }
+        Event::End(TagEnd::Link) => {
+            if links.pop().unwrap_or(false) {
+                vec![Event::End(TagEnd::Link)]
+            } else {
+                vec![Event::Html("</span>".into())]
+            }
+        }
+        Event::Start(Tag::Image { .. }) => vec![Event::Html("<span>".into())],
+        Event::End(TagEnd::Image) => vec![Event::Html("</span>".into())],
+        Event::TaskListMarker(done) => vec![Event::Text(if done { "☑ " } else { "☐ " }.into())],
+        Event::Text(text) => text_with_formulas(&text, &prefix, &formulas),
+        other => vec![other],
+    });
+    let mut body = String::new();
+    html::push_html(&mut body, events);
+    if body.len() > 4_000_000 {
+        Some("<p data-gridtimer-security-blocked=\"oversized\">文档内容超过安全上限，当前未加载。</p>".into())
+    } else {
+        Some(body)
+    }
+}
+
 fn escape_html(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -325,5 +394,67 @@ mod tests {
         assert!(body.contains("GTANDROIDMATHTOKEN0Z"));
         assert!(body.contains("前文"));
         assert!(body.contains("后文"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_knowledge_math_preserves_http_links_and_denies_active_untrusted_content() {
+        let source = "\\(x\\) [官方](https://example.test/reference?q=one&n=two) [HTTP](http://example.test/plain) [危险](javascript:alert(1)) [凭据](https://user:password@example.test/)\n\n<script>alert(2)</script>\n\n![外图](https://example.test/a.png)";
+        let body = render_windows_knowledge_math_body(source).unwrap();
+        assert!(body.contains("href=\"https://example.test/reference?q=one&amp;n=two\""));
+        assert!(body.contains("href=\"http://example.test/plain\""));
+        assert!(!body.contains("href=\"javascript:"));
+        assert!(!body.contains("href=\"https://user:"));
+        assert!(!body.contains("<script>"));
+        assert!(!body.contains("<img"));
+        assert!(body.contains("&lt;script&gt;"));
+        assert!(body.contains("危险"));
+        assert!(body.contains("凭据"));
+        assert!(body.contains("外图"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_knowledge_math_keeps_invalid_formula_source_and_does_not_mutate_input() {
+        let source = "前文 \\(\\unknowncmd{x}\\) 后文\n\n\\[A=P(1+r)^n\\]\n\n\\[未闭合";
+        let original = source.to_owned();
+        let body = render_windows_knowledge_math_body(source).unwrap();
+        assert!(body.contains("data-display=\"false\""));
+        assert!(body.contains("data-display=\"true\""));
+        assert!(body.contains("\\(\\unknowncmd{x}\\)"));
+        assert!(body.contains("未闭合"));
+        assert_eq!(source, original);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_knowledge_code_currency_and_empty_math_use_existing_renderer() {
+        for source in [
+            "`\\(x\\)` and `$q$`\n\n```latex\n\\[x^2\\]\n$$y$$\n```",
+            "金额 $100 and $200，\\$20 and $30",
+            "未闭合 \\[x，空公式 \\( \\)",
+            "正文 [原链接](https://example.test/) **强调**",
+        ] {
+            assert!(render_windows_knowledge_math_body(source).is_none());
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_knowledge_math_never_rewrites_link_destinations_or_titles() {
+        for source in [
+            "\\(P\\) [参考](https://example.test/path/$x$)",
+            "\\[A=P\\] [参考](https://example.test/ \"$x$\")",
+            "\\(P\\) [参考](https://example.test/ \"\\(x\\)\")",
+            "\\(P\\) [参考][r]\n\n[r]: https://example.test/path/$x$ \"来源\"",
+        ] {
+            let original = source.to_owned();
+            assert!(render_windows_knowledge_math_body(source).is_none());
+            assert_eq!(source, original);
+        }
+        let encoded = "\\(P\\) [参考](https://example.test/path/%24x%24?q=one&n=two)";
+        let body = render_windows_knowledge_math_body(encoded).unwrap();
+        assert!(body.contains("href=\"https://example.test/path/%24x%24?q=one&amp;n=two\""));
+        assert!(!body.contains("GTANDROIDMATHTOKEN"));
     }
 }

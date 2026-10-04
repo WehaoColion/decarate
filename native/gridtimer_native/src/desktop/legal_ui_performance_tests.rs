@@ -52,6 +52,58 @@ fn legal_snapshot_version_scope_dirty_and_cancel_block_sending() {
 }
 
 #[test]
+fn legal_pending_account_migration_stops_batches_before_the_identity_changes() {
+    let root = temp_test_dir("legal_pending_account_migration");
+    let mut client = knowledge_test_client(&root);
+    client.desktop_ui.legal_risk.scope = client.legal_scope();
+    client.desktop_ui.legal_risk.preview_version = Some(client.data_version);
+    client.desktop_ui.legal_risk.preview = Some(legal_performance_prepared(16));
+    client.desktop_ui.legal_risk.preview_digest =
+        format!("{:x}", Sha256::digest(client.state_json.as_bytes()));
+    let original_scope = client.legal_scope();
+    for kind in [
+        SyncTaskKind::Login,
+        SyncTaskKind::Register,
+        SyncTaskKind::Download,
+    ] {
+        client.desktop_ui.legal_risk.cancel = Arc::new(AtomicBool::new(false));
+        let in_flight = Arc::new(AtomicBool::new(false));
+        client.desktop_ui.legal_risk.running_cancel = Some(Arc::clone(&in_flight));
+        client.desktop_ui.legal_risk.running_binding = client.legal_send_binding();
+        client.desktop_ui.legal_risk.running = true;
+        client.sync_task = Some(SyncTaskState {
+            kind,
+            phase: SyncTaskPhase::AppData,
+            started_at_epoch_millis: now_millis(),
+        });
+        assert_eq!(client.legal_scope(), original_scope);
+        assert!(client.legal_snapshot_current());
+        assert!(!client.legal_send_readiness().workspace_ready);
+        client.cancel_changed_legal_scan();
+        assert!(in_flight.load(AtomicOrdering::Acquire));
+        assert!(client
+            .desktop_ui
+            .legal_risk
+            .cancel
+            .load(AtomicOrdering::Acquire));
+        assert!(client.desktop_ui.legal_risk.running);
+        assert!(Arc::ptr_eq(
+            &in_flight,
+            client
+                .desktop_ui
+                .legal_risk
+                .running_cancel
+                .as_ref()
+                .unwrap()
+        ));
+        client.sync_task = None;
+    }
+    client.task_supervisor.begin_shutdown();
+    drop(client);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn legal_preparation_drops_changed_cancelled_and_other_workspace_results() {
     let root = temp_test_dir("legal_preparation_stale");
     let mut client = knowledge_test_client(&root);
@@ -455,11 +507,45 @@ fn legal_send_dispatch_requires_configuration_and_matching_digest() {
     client.task_supervisor = TaskSupervisor::default();
     client.sync.ai_api_key = "synthetic".into();
     client.desktop_ui.legal_risk.preview_digest = "stale-content".into();
+    assert!(client.request_legal_send_confirmation());
     client.start_legal_risk(&egui::Context::default());
     let stale = client.task_supervisor.active_count();
     client.task_supervisor.begin_shutdown();
     client.task_supervisor.drain_for(Duration::from_secs(1));
     assert_eq!(stale, 0);
+    drop(client);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn legal_confirmation_changes_never_dispatch_or_reuse_a_stale_authorization() {
+    let root = temp_test_dir("legal_send_confirmation_binding");
+    let mut client = knowledge_test_client(&root);
+    client.desktop_ui.legal_risk.scope = client.legal_scope();
+    client.desktop_ui.legal_risk.preview_version = Some(client.data_version);
+    client.desktop_ui.legal_risk.preview = Some(legal_performance_prepared(16));
+    client.desktop_ui.legal_risk.preview_digest =
+        format!("{:x}", Sha256::digest(client.state_json.as_bytes()));
+    client.sync.ai_api_key = "synthetic".into();
+    client.sync.ai_base_url = "http://127.0.0.1:1/v1".into();
+    client.sync.ai_model = "synthetic".into();
+    client.start_legal_risk(&egui::Context::default());
+    assert_eq!(client.task_supervisor.active_count(), 0);
+    for change in 0..3 {
+        assert!(client.request_legal_send_confirmation());
+        match change {
+            0 => client.sync.ai_api_key.push_str("-changed"),
+            1 => client.sync.ai_model.push_str("-changed"),
+            _ => client.sync.ai_base_url.push_str("/other"),
+        }
+        client.start_legal_risk(&egui::Context::default());
+        assert_eq!(client.task_supervisor.active_count(), 0);
+        assert!(client.desktop_ui.legal_risk.send_consent.is_none());
+        assert!(!client.desktop_ui.legal_risk.running);
+        client.start_legal_risk(&egui::Context::default());
+        assert_eq!(client.task_supervisor.active_count(), 0);
+    }
+    client.task_supervisor.begin_shutdown();
     drop(client);
     fs::remove_dir_all(root).unwrap();
 }
@@ -551,6 +637,7 @@ fn legal_cancel_and_account_change_stop_after_synthetic_capability_probe() {
             write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
             listener
         });
+        assert!(client.request_legal_send_confirmation());
         client.start_legal_risk(&egui::Context::default());
         let outcome = client
             .desktop_ui

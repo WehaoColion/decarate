@@ -515,6 +515,16 @@ impl TimerWindowsClient {
             });
             state.month.clone()
         };
+        if ui
+            .add_sized(
+                [ui.available_width(), 42.0],
+                egui::Button::new("开始 AI 分析").fill(palette().accent),
+            )
+            .on_hover_text("核对扫描范围与接收方后，再确认发送")
+            .clicked()
+        {
+            open_legal = true;
+        }
         if open_legal {
             self.desktop_ui.legal_risk.open = true;
             self.finance_workbench.tab = 7;

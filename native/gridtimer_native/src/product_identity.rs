@@ -1,3 +1,4 @@
+// v1.1.0.7 Windows - Add real AI modes, offline answer math and guarded legal send workflow.
 // v2.23.2.9 Android - Keep legal actions visible and require scoped send consent.
 // v2.23.2.8 Android - Recover invalidated legal scans without releasing newer requests.
 // v2.23.2.7 Android - Repair offline document loading and formula whitespace parsing.
@@ -80,7 +81,7 @@
 // v2.22.41 Android - Protect newer note generations during privacy cleanup.
 // v2.22.39 - Complete Windows usability, save feedback, and release acceptance.
 
-pub const WINDOWS_APP_VERSION: &str = "1.1.0.6";
+pub const WINDOWS_APP_VERSION: &str = "1.1.0.7";
 pub const SYNC_SUPERVISOR_MUTEX_NAME: &str = r"Local\GridTimerSyncSupervisor-v1";
 pub const ANDROID_APP_VERSION: &str = "2.23.2.9";
 pub const ANDROID_VERSION_CODE: i32 = 22278;
@@ -114,9 +115,9 @@ pub const PRODUCT: ProductIdentity = ProductIdentity {
     runtime_log_dir: "GridTimerClientRuntime",
 };
 
-pub const WINDOWS_CLIENT_TITLE: &str = "十倍率 Windows v1.1.0.6";
-pub const SYNC_LAUNCHER_FILE_NAME: &str = "grid_timer_sync_launcher_v1.1.0.6.exe";
-pub const SYNC_SERVER_FILE_NAME: &str = "grid_timer_sync_server_v1.1.0.6.exe";
+pub const WINDOWS_CLIENT_TITLE: &str = "十倍率 Windows v1.1.0.7";
+pub const SYNC_LAUNCHER_FILE_NAME: &str = "grid_timer_sync_launcher_v1.1.0.7.exe";
+pub const SYNC_SERVER_FILE_NAME: &str = "grid_timer_sync_server_v1.1.0.7.exe";
 pub const RELEASE_MANIFEST_FILE_NAME: &str = "release_manifest.json";
 
 pub const BUILD_GIT_COMMIT: &str = match option_env!("GRIDTIMER_GIT_COMMIT") {
