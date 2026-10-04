@@ -1,3 +1,10 @@
+// v1.0.3.1 Windows - Export workspace-scoped desktop note encryption sessions.
+// v1.0.3 Windows - Export the single-decode desktop finance overview facade.
+// v2.22.48.1 Android - Verify persisted snapshot streams without JVM payload copies.
+// v2.22.52 - Share structured knowledge models across clients.
+// v2.22.47 Windows - Share Android finance overview calculations with the desktop.
+// v2.22.39 - Verify and reuse shared document formatting for Windows.
+// v2.22.25 - Export unified identity, endpoint validation, and managed Windows jobs.
 use jni::objects::{
     JBooleanArray, JClass, JFloatArray, JIntArray, JLongArray, JObject, JObjectArray, JString,
 };
@@ -6,21 +13,327 @@ use jni::sys::{
     jobjectArray, jstring, JNI_FALSE, JNI_TRUE,
 };
 use jni::JNIEnv;
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{html, Event, Options, Parser};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub mod ai_client;
+#[cfg(target_os = "android")]
+mod android_ai_session;
+pub mod android_answer_render;
+pub mod android_canvas;
+#[cfg(target_os = "android")]
+mod android_legal_session;
+pub mod android_snapshot_codec;
+pub mod android_snapshot_verifier;
 pub mod app_data;
+#[cfg(not(target_os = "android"))]
+pub mod desktop_background_jobs;
+#[cfg(not(target_os = "android"))]
+pub mod desktop_media_references;
+#[cfg(not(target_os = "android"))]
+pub mod desktop_note_media;
+#[cfg(not(target_os = "android"))]
+pub mod desktop_note_media_sync;
+#[cfg(not(target_os = "android"))]
+pub mod desktop_private_media_index;
+#[cfg(target_os = "windows")]
+pub mod desktop_startup_read_session;
+#[cfg(not(target_os = "android"))]
+pub mod desktop_state_store;
+#[cfg(not(target_os = "android"))]
+#[cfg(not(target_os = "android"))]
+pub mod desktop_timer;
+pub mod finance_money;
+pub(crate) mod finance_precision_guard;
 mod finance_profile;
+pub mod knowledge;
+pub mod legal_scan;
+pub mod legal_sources;
+pub use finance_profile::{
+    aggregate_finance_ledger_values, decode_finance_backup_profile_json,
+    default_finance_expense_category_configs_json, encode_finance_backup_json,
+    finance_day_ledger_or_default_json, finance_month_snapshot_or_default_json,
+    year_net_worth_summary_values, FinanceLedgerTotals,
+};
+#[cfg(not(target_os = "android"))]
+pub use finance_profile::{
+    build_desktop_finance_overview_values, build_detailed_finance_report_values,
+    build_detailed_finance_snapshot_values, build_finance_health_score_values,
+    build_finance_trend_values, latest_snapshot_month_key_up_to, upsert_finance_day_ledger_json,
+    upsert_finance_month_snapshot_json, DesktopFinanceOverviewValues, FinanceHealthScoreValues,
+    FinanceSnapshotValues, FinanceTrendValues,
+};
+#[cfg(not(target_os = "android"))]
+pub use finance_profile::{
+    AndroidFinanceRiskV2, FinanceReviewFingerprints, FinanceReviewReceipt, FinanceRiskState,
+};
+#[cfg(all(test, not(target_os = "android")))]
+#[allow(dead_code)]
+mod legacy_app_data_fixture;
+#[cfg(all(test, not(target_os = "android")))]
+#[allow(dead_code)]
+mod legacy_note_crypto_fixture;
+mod note_crypto;
 mod note_documents;
+#[cfg(not(target_os = "android"))]
+pub(crate) mod note_media_intent;
+#[cfg(not(target_os = "android"))]
+pub mod private_media_protocol;
+#[cfg(not(target_os = "android"))]
+mod private_media_retained;
+pub mod product_identity;
+mod rich_text_security;
+#[cfg(not(target_os = "android"))]
+pub mod runtime;
+#[cfg(all(test, not(target_os = "android")))]
+mod sealed_media_reference_tests;
+#[cfg(not(target_os = "android"))]
+mod sealed_media_references;
+pub mod server_endpoint;
+#[cfg(not(target_os = "android"))]
+pub mod server_store;
 pub mod sync_core;
+pub mod sync_identity;
+pub mod sync_rendezvous;
+pub mod theme_core;
 mod timer_insights;
+pub mod timer_sync;
 pub mod tooling;
 
+/// Desktop-facing access to the same risk policy used by Android.
+///
+/// Keeping this narrow JSON facade avoids duplicating the financial policy in
+/// the Windows UI while leaving the internal finance model encapsulated.
+#[cfg(not(target_os = "android"))]
+pub fn build_desktop_finance_risk_cockpit_json(
+    raw: &str,
+    period_code: i32,
+    reference_year: i32,
+    reference_month: i32,
+    reference_day: i32,
+) -> Option<String> {
+    finance_profile::build_finance_risk_cockpit_json(
+        raw,
+        period_code,
+        reference_year,
+        reference_month,
+        reference_day,
+    )
+}
+
+/// Windows uses the reviewed policy directly, while the existing cockpit
+/// facade remains available to older desktop callers and Android JNI.
+#[cfg(not(target_os = "android"))]
+pub fn build_desktop_finance_risk_v2_json(
+    profile_json: &str,
+    review_receipts_json: &str,
+    reference_year: i32,
+    reference_month: i32,
+    reference_day: i32,
+) -> Option<String> {
+    finance_profile::build_android_finance_risk_v2_json(
+        profile_json,
+        review_receipts_json,
+        reference_year,
+        reference_month,
+        reference_day,
+    )
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn build_desktop_finance_review_fingerprints_json(
+    profile_json: &str,
+    month_key: &str,
+) -> Option<String> {
+    finance_profile::build_android_finance_review_fingerprints_json(profile_json, month_key)
+}
+
+/// Desktop-facing access to the note encryption state machine shared with Android.
+///
+/// The returned tuple contains the sealed note JSON and an in-memory session token.
+/// The token is process-local, must never be persisted, and should be closed as soon
+/// as the editor no longer needs plaintext access.
+#[cfg(not(target_os = "android"))]
+pub fn encrypt_desktop_note_json(note_json: &str, password: &str) -> Option<(String, String)> {
+    note_crypto::encrypt_note(note_json, password)
+}
+
+/// Unlocks a sealed note for a desktop editing session.
+#[cfg(not(target_os = "android"))]
+pub fn unlock_desktop_note_json(note_json: &str, password: &str) -> Option<(String, String)> {
+    note_crypto::unlock_note(note_json, password)
+}
+
+/// Creates a desktop session bound to the caller's verified workspace owner.
+#[cfg(not(target_os = "android"))]
+pub fn encrypt_desktop_note_json_in_scope(
+    note_json: &str,
+    password: &str,
+    scope: &str,
+) -> Option<(String, String)> {
+    note_crypto::encrypt_note_in_scope(note_json, password, scope)
+}
+
+/// Unlocks a desktop note without sharing revocation with another workspace.
+#[cfg(not(target_os = "android"))]
+pub fn unlock_desktop_note_json_in_scope(
+    note_json: &str,
+    password: &str,
+    scope: &str,
+) -> Option<(String, String)> {
+    note_crypto::unlock_note_in_scope(note_json, password, scope)
+}
+
+/// Re-seals an unlocked desktop note before it is written to AppData.
+#[cfg(not(target_os = "android"))]
+pub fn seal_desktop_note_json(note_json: &str, session_token: &str) -> Option<String> {
+    note_crypto::seal_note(note_json, session_token)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn create_and_seal_desktop_note_version_json(
+    app_data_json: &str,
+    note_json: &str,
+    session_token: &str,
+    source_version_id: &str,
+    expected_latest_version_id: &str,
+    request_id: &str,
+    now: i64,
+) -> Option<String> {
+    note_crypto::create_and_seal_note_version(
+        app_data_json,
+        note_json,
+        session_token,
+        source_version_id,
+        expected_latest_version_id,
+        request_id,
+        now,
+    )
+}
+
+/// Re-wraps the current note key under a new password. The caller must only commit
+/// the password change after the returned sealed record has been durably stored.
+#[cfg(not(target_os = "android"))]
+pub fn change_desktop_note_password_json(
+    note_json: &str,
+    session_token: &str,
+    new_password: &str,
+) -> Option<String> {
+    note_crypto::change_password(note_json, session_token, new_password)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn commit_desktop_note_password_change(note_json: &str, session_token: &str) -> bool {
+    note_crypto::commit_password_change(note_json, session_token)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn abort_desktop_note_password_change(note_json: &str, session_token: &str) -> bool {
+    note_crypto::abort_password_change(note_json, session_token)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn close_desktop_note_session(session_token: &str) -> bool {
+    note_crypto::close_session(session_token)
+}
+
+/// Uses the same source-ranking policy as the Android knowledge assistant.
+#[cfg(not(target_os = "android"))]
+pub fn rank_desktop_knowledge_sources(
+    query: &str,
+    titles: &[String],
+    bodies: &[String],
+    folders: &[String],
+) -> Vec<usize> {
+    rank_knowledge_source_indices(query, titles, bodies, folders)
+        .into_iter()
+        .filter_map(|index| usize::try_from(index).ok())
+        .collect()
+}
+
+/// Sanitizes desktop rich-text HTML with the same allowlist used by Android.
+#[cfg(not(target_os = "android"))]
+pub fn sanitize_desktop_rich_text_html(content: &str) -> String {
+    sanitize_rich_text_html(content)
+}
+
+/// Converts desktop text to editable markup using Android's renderer.
+#[cfg(not(target_os = "android"))]
+pub fn render_desktop_rich_text_body(content: &str, markdown_enabled: bool) -> String {
+    if markdown_enabled {
+        return render_rich_text_body(content, true);
+    }
+    if content.is_empty() {
+        return String::new();
+    }
+    content
+        .replace("\r\n", "\n")
+        .split('\n')
+        .map(|line| {
+            if line.is_empty() {
+                "<p><br/></p>".to_string()
+            } else {
+                format!("<p>{}</p>", escape_html(line))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+/// Renders the same text, image, contact, and call blocks as Android exports.
+#[cfg(not(target_os = "android"))]
+pub fn render_desktop_note_document_html(payload_json: &str) -> Option<String> {
+    let payload = serde_json::from_str::<NoteHtmlPayload>(payload_json).ok()?;
+    Some(render_note_document_html(payload))
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn desktop_rich_text_attachment_ids(html: &str) -> Vec<String> {
+    rich_text_attachment_ids(html)
+}
+
 use note_documents::{build_note_document_text_digest, NoteBlockTextInput, NoteDocumentTextInput};
+use rich_text_security::sanitize_rich_text_html;
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeVerifySyncRendezvousSignature(
+    mut env: JNIEnv,
+    _class: JClass,
+    payload: JString,
+    public_key_base64: JString,
+    signature_base64: JString,
+) -> jboolean {
+    let payload: String = match env.get_string(&payload) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    if payload.is_empty() || payload.len() > sync_rendezvous::RENDEZVOUS_MAX_SIGNED_PAYLOAD_BYTES {
+        return JNI_FALSE;
+    }
+    let public_key_base64: String = match env.get_string(&public_key_base64) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    if public_key_base64.len() != 43 {
+        return JNI_FALSE;
+    }
+    let signature_base64: String = match env.get_string(&signature_base64) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    if signature_base64.len() != 86 {
+        return JNI_FALSE;
+    }
+
+    if sync_rendezvous::verify_ed25519_signature(&payload, &public_key_base64, &signature_base64) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
 
 const CENTER_PREFIX: &str = "【居中】";
 const CENTER_WRAP_START: &str = "[";
@@ -29,6 +342,7 @@ const HEADING_PREFIX: &str = "# ";
 const LIST_PREFIX: &str = "- ";
 const QUOTE_PREFIX: &str = "> ";
 const TODO_PREFIX: &str = "- [ ] ";
+const TODO_DONE_PREFIX: &str = "- [x] ";
 const BOLD_MARK: &str = "**";
 
 const MIUI_FOCUS_TIMER_PIC_KEY: &str = "miui.focus.pic_timer";
@@ -48,6 +362,10 @@ const MICRO_BREAK_PHASE_FOCUS: i32 = 0;
 const MICRO_BREAK_PHASE_BREAK: i32 = 1;
 const MICRO_BREAK_TRANSITION_BREAK_STARTED: i64 = 0;
 const MICRO_BREAK_TRANSITION_FOCUS_RESUMED: i64 = 1;
+const MICRO_BREAK_RESOLUTION_MAX_PHASE_STEPS: usize = 128;
+const MICRO_BREAK_RESOLUTION_MAX_SESSIONS: usize = 64;
+const MICRO_BREAK_RESOLUTION_MAX_TRANSITIONS: usize = 128;
+// The native resolver is intentionally paged; see micro_break_resolution_values.
 const FINANCE_INCOME_KIND_ACTIVE: i32 = 0;
 const FINANCE_INCOME_KIND_ASSET: i32 = 1;
 const FINANCE_INCOME_KIND_OTHER: i32 = 2;
@@ -156,6 +474,7 @@ struct NativeMicroBreakResolution {
     cycle_index: i32,
     phase_progress_millis: i64,
     updated_at: i64,
+    complete: bool,
     sessions: Vec<NativeMicroBreakSession>,
     transitions: Vec<NativeMicroBreakTransition>,
 }
@@ -485,7 +804,7 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     income_amounts: JLongArray,
     expense_bucket_codes: JIntArray,
     expense_amounts: JLongArray,
-    has_note: jboolean,
+    is_confirmed: jboolean,
 ) -> jlongArray {
     let Some(income_kind_values) = int_array_values(&env, &income_kind_codes) else {
         return long_array_from_slice(env, &[]);
@@ -504,7 +823,7 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         &income_amount_values,
         &expense_bucket_values,
         &expense_amount_values,
-        has_note == JNI_TRUE,
+        is_confirmed == JNI_TRUE,
     ) else {
         return long_array_from_slice(env, &[]);
     };
@@ -932,6 +1251,224 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeEncryptNote(
+    mut env: JNIEnv,
+    _class: JClass,
+    note_json: JString,
+    password: JString,
+) -> jobjectArray {
+    let note_json: String = match env.get_string(&note_json) {
+        Ok(value) => value.into(),
+        Err(_) => return empty_string_array(&mut env),
+    };
+    let mut password: String = match env.get_string(&password) {
+        Ok(value) => value.into(),
+        Err(_) => return empty_string_array(&mut env),
+    };
+    let result = note_crypto::encrypt_note(&note_json, &password);
+    zeroize::Zeroize::zeroize(&mut password);
+    let Some((sealed_note, session_token)) = result else {
+        return empty_string_array(&mut env);
+    };
+    string_array_from_slice(&mut env, &[sealed_note.as_str(), session_token.as_str()])
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeUnlockNote(
+    mut env: JNIEnv,
+    _class: JClass,
+    note_json: JString,
+    password: JString,
+) -> jobjectArray {
+    let note_json: String = match env.get_string(&note_json) {
+        Ok(value) => value.into(),
+        Err(_) => return empty_string_array(&mut env),
+    };
+    let mut password: String = match env.get_string(&password) {
+        Ok(value) => value.into(),
+        Err(_) => return empty_string_array(&mut env),
+    };
+    let result = note_crypto::unlock_note(&note_json, &password);
+    zeroize::Zeroize::zeroize(&mut password);
+    let Some((decrypted_note, session_token)) = result else {
+        return empty_string_array(&mut env);
+    };
+    string_array_from_slice(&mut env, &[decrypted_note.as_str(), session_token.as_str()])
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeSealEncryptedNote(
+    mut env: JNIEnv,
+    _class: JClass,
+    note_json: JString,
+    session_token: JString,
+) -> jstring {
+    let note_json: String = match env.get_string(&note_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let session_token: String = match env.get_string(&session_token) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match note_crypto::seal_note(&note_json, &session_token) {
+        Some(value) => new_java_string(&mut env, &value),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeCreateEncryptedNoteVersionJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    app_data_json: JString,
+    note_json: JString,
+    session_token: JString,
+    source_version_id: JString,
+    expected_latest_version_id: JString,
+    request_id: JString,
+    now: jlong,
+) -> jstring {
+    let app_data_json: String = match env.get_string(&app_data_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let note_json: String = match env.get_string(&note_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let session_token: String = match env.get_string(&session_token) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let source_version_id: String = match env.get_string(&source_version_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let expected_latest_version_id: String = match env.get_string(&expected_latest_version_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let request_id: String = match env.get_string(&request_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match note_crypto::create_and_seal_note_version(
+        &app_data_json,
+        &note_json,
+        &session_token,
+        &source_version_id,
+        &expected_latest_version_id,
+        &request_id,
+        now,
+    ) {
+        Some(value) => new_java_string(&mut env, &value),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeChangeEncryptedNotePassword(
+    mut env: JNIEnv,
+    _class: JClass,
+    note_json: JString,
+    session_token: JString,
+    new_password: JString,
+) -> jstring {
+    let note_json: String = match env.get_string(&note_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let session_token: String = match env.get_string(&session_token) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let mut new_password: String = match env.get_string(&new_password) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let result = note_crypto::change_password(&note_json, &session_token, &new_password);
+    zeroize::Zeroize::zeroize(&mut new_password);
+    match result {
+        Some(value) => new_java_string(&mut env, &value),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeCommitEncryptedNotePasswordChange(
+    mut env: JNIEnv,
+    _class: JClass,
+    note_json: JString,
+    session_token: JString,
+) -> jboolean {
+    let note_json: String = match env.get_string(&note_json) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let session_token: String = match env.get_string(&session_token) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    boolean_to_jni(note_crypto::commit_password_change(
+        &note_json,
+        &session_token,
+    ))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeAbortEncryptedNotePasswordChange(
+    mut env: JNIEnv,
+    _class: JClass,
+    note_json: JString,
+    session_token: JString,
+) -> jboolean {
+    let note_json: String = match env.get_string(&note_json) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let session_token: String = match env.get_string(&session_token) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    boolean_to_jni(note_crypto::abort_password_change(
+        &note_json,
+        &session_token,
+    ))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeCloseEncryptedNoteSession(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_token: JString,
+) -> jboolean {
+    let session_token: String = match env.get_string(&session_token) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    boolean_to_jni(note_crypto::close_session(&session_token))
+}
+
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeRenderAndroidAiAnswerHtml(
+    mut env: JNIEnv,
+    _class: JClass,
+    content: JString,
+    dark_theme: jboolean,
+) -> jstring {
+    let content: String = match env.get_string(&content) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    new_java_string(
+        &mut env,
+        &android_answer_render::render_android_ai_answer_html(&content, dark_theme == JNI_TRUE),
+    )
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeRenderNoteDocumentHtml(
     mut env: JNIEnv,
     _class: JClass,
@@ -963,6 +1500,19 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         &mut env,
         &render_rich_text_body(&content, markdown_enabled == JNI_TRUE),
     )
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeSanitizeRichTextHtml(
+    mut env: JNIEnv,
+    _class: JClass,
+    content: JString,
+) -> jstring {
+    let content: String = match env.get_string(&content) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    new_java_string(&mut env, &sanitize_rich_text_html(&content))
 }
 
 #[no_mangle]
@@ -1037,6 +1587,10 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         Ok(value) => value.into(),
         Err(_) => return double_array_from_slice(env, &[]),
     };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
+    };
     let Some(values) = finance_profile::build_finance_trend_values(
         &profile_json,
         period_code,
@@ -1057,6 +1611,16 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
             values.previous_recorded_days as f64,
             values.most_off_target_bucket_code as f64,
             values.most_off_target_ratio_delta as f64,
+            if values.cashflow_comparison_available {
+                1.0
+            } else {
+                0.0
+            },
+            if values.net_worth_comparison_available {
+                1.0
+            } else {
+                0.0
+            },
         ],
     )
 }
@@ -1074,6 +1638,10 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     let profile_json: String = match env.get_string(&profile_json) {
         Ok(value) => value.into(),
         Err(_) => return empty_int_array_from_env(env),
+    };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
     };
     let Some(values) = finance_profile::build_finance_alert_plan_values(
         &profile_json,
@@ -1100,6 +1668,10 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     let profile_json: String = match env.get_string(&profile_json) {
         Ok(value) => value.into(),
         Err(_) => return empty_string_array(&mut env),
+    };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
     };
     let Some(values) = finance_profile::build_finance_alert_argument_values(
         &profile_json,
@@ -1147,6 +1719,10 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         Ok(value) => value.into(),
         Err(_) => return double_array_from_slice(env, &[]),
     };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
+    };
     let Some(values) = finance_profile::build_detailed_finance_snapshot_values(
         &profile_json,
         reference_year,
@@ -1171,6 +1747,10 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         Ok(value) => value.into(),
         Err(_) => return double_array_from_slice(env, &[]),
     };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
+    };
     let Some(values) = finance_profile::build_detailed_finance_report_values(
         &profile_json,
         period_code,
@@ -1184,17 +1764,144 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeBuildFinanceHealthScore(
+    mut env: JNIEnv,
+    _class: JClass,
+    profile_json: JString,
+    period_code: jint,
+    reference_year: jint,
+    reference_month: jint,
+    reference_day: jint,
+) -> jdoubleArray {
+    let profile_json: String = match env.get_string(&profile_json) {
+        Ok(value) => value.into(),
+        Err(_) => return double_array_from_slice(env, &[]),
+    };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
+    };
+    let Some(values) = finance_profile::build_finance_health_score_values(
+        &profile_json,
+        period_code,
+        reference_year,
+        reference_month,
+        reference_day,
+    ) else {
+        return double_array_from_slice(env, &[]);
+    };
+    double_array_from_slice(env, &finance_health_score_values(values))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeBuildFinanceRiskCockpitJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    profile_json: JString,
+    period_code: jint,
+    reference_year: jint,
+    reference_month: jint,
+    reference_day: jint,
+) -> jstring {
+    let profile_json: String = match env.get_string(&profile_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
+    };
+    match finance_profile::build_finance_risk_cockpit_json(
+        &profile_json,
+        period_code,
+        reference_year,
+        reference_month,
+        reference_day,
+    ) {
+        Some(value) => new_java_string(&mut env, &value),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeBuildAndroidFinanceRiskV2Json(
+    mut env: JNIEnv,
+    _class: JClass,
+    profile_json: JString,
+    receipts_json: JString,
+    year: jint,
+    month: jint,
+    day: jint,
+) -> jstring {
+    let profile_json: String = match env.get_string(&profile_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
+    };
+    let receipts_json: String = match env.get_string(&receipts_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match finance_profile::build_android_finance_risk_v2_json(
+        &profile_json,
+        &receipts_json,
+        year,
+        month,
+        day,
+    ) {
+        Some(value) => new_java_string(&mut env, &value),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeBuildAndroidFinanceReviewFingerprintsJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    profile_json: JString,
+    month_key: JString,
+) -> jstring {
+    let profile_json: String = match env.get_string(&profile_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
+    };
+    let month_key: String = match env.get_string(&month_key) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match finance_profile::build_android_finance_review_fingerprints_json(&profile_json, &month_key)
+    {
+        Some(value) => new_java_string(&mut env, &value),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeYearNetWorthSummary(
     mut env: JNIEnv,
     _class: JClass,
     profile_json: JString,
     year: jint,
+    through_month: jint,
 ) -> jlongArray {
     let profile_json: String = match env.get_string(&profile_json) {
         Ok(value) => value.into(),
         Err(_) => return empty_long_array_from_env(env),
     };
-    let Some(values) = finance_profile::year_net_worth_summary_values(&profile_json, year) else {
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
+    };
+    let Some(values) =
+        finance_profile::year_net_worth_summary_values(&profile_json, year, through_month)
+    else {
         return empty_long_array_from_env(env);
     };
     long_array_from_slice(env, &values)
@@ -1278,6 +1985,10 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         Ok(value) => value.into(),
         Err(_) => return empty_int_array(&mut env),
     };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
+    };
     let Some(values) = finance_profile::profile_summary_flags(&profile_json) else {
         return empty_int_array(&mut env);
     };
@@ -1297,6 +2008,10 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     let profile_json: String = match env.get_string(&profile_json) {
         Ok(value) => value.into(),
         Err(_) => return empty_long_array(&mut env),
+    };
+    let profile_json = match finance_money::project_profile_json(&profile_json) {
+        Some(projected) => projected,
+        None => return std::ptr::null_mut(),
     };
     let Some(values) = finance_profile::aggregate_finance_ledger_values(
         &profile_json,
@@ -1540,6 +2255,50 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeLocalizeTimerSyncAppDataJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    incoming: JString,
+    local: JString,
+    now: jlong,
+) -> jstring {
+    let incoming: String = match env.get_string(&incoming) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let local: String = match env.get_string(&local) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match timer_sync::localize_snapshot_json(&incoming, &local, now) {
+        Some(value) => new_java_string(&mut env, &value),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeMergeSyncAppDataJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    account_app_data_json: JString,
+    local_app_data_json: JString,
+    now: jlong,
+) -> jstring {
+    let account_app_data_json: String = match env.get_string(&account_app_data_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let local_app_data_json: String = match env.get_string(&local_app_data_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match sync_core::merge_sync_app_data_json(&account_app_data_json, &local_app_data_json, now) {
+        Some(value) => new_java_string(&mut env, &value),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeRegisterSyncAccount(
     mut env: JNIEnv,
     _class: JClass,
@@ -1579,19 +2338,36 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     _class: JClass,
     server_url: JString,
     token: JString,
+    server_instance_id: JString,
+    account_namespace: JString,
+    workspace_id: JString,
+    workspace_proof: JString,
     app_data_json: JString,
     client_updated_at_epoch_millis: jlong,
+    acknowledged_generation: jlong,
+    restore_receipt: JString,
     device_name: JString,
 ) -> jstring {
     let server_url = string_from_jstring(&mut env, &server_url);
     let token = string_from_jstring(&mut env, &token);
+    let server_instance_id = string_from_jstring(&mut env, &server_instance_id);
+    let account_namespace = string_from_jstring(&mut env, &account_namespace);
+    let workspace_id = string_from_jstring(&mut env, &workspace_id);
+    let workspace_proof = string_from_jstring(&mut env, &workspace_proof);
     let app_data_json = string_from_jstring(&mut env, &app_data_json);
+    let restore_receipt = string_from_jstring(&mut env, &restore_receipt);
     let device_name = string_from_jstring(&mut env, &device_name);
-    let result = sync_core::sync_app_data_json(
+    let result = sync_core::sync_app_data_with_workspace_capability_json(
         &server_url,
         &token,
+        &server_instance_id,
+        &account_namespace,
+        &workspace_id,
+        &workspace_proof,
         &app_data_json,
         client_updated_at_epoch_millis,
+        acknowledged_generation,
+        &restore_receipt,
         &device_name,
     );
     new_java_string(&mut env, &result)
@@ -1603,21 +2379,114 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     _class: JClass,
     server_url: JString,
     token: JString,
+    server_instance_id: JString,
+    account_namespace: JString,
+    workspace_id: JString,
+    workspace_proof: JString,
     app_data_json: JString,
     client_updated_at_epoch_millis: jlong,
+    acknowledged_generation: jlong,
+    restore_receipt: JString,
     device_name: JString,
 ) -> jstring {
     let server_url = string_from_jstring(&mut env, &server_url);
     let token = string_from_jstring(&mut env, &token);
+    let server_instance_id = string_from_jstring(&mut env, &server_instance_id);
+    let account_namespace = string_from_jstring(&mut env, &account_namespace);
+    let workspace_id = string_from_jstring(&mut env, &workspace_id);
+    let workspace_proof = string_from_jstring(&mut env, &workspace_proof);
     let app_data_json = string_from_jstring(&mut env, &app_data_json);
+    let restore_receipt = string_from_jstring(&mut env, &restore_receipt);
     let device_name = string_from_jstring(&mut env, &device_name);
-    let result = sync_core::upload_local_app_data_json(
+    let result = sync_core::upload_local_app_data_with_workspace_capability_json(
         &server_url,
         &token,
+        &server_instance_id,
+        &account_namespace,
+        &workspace_id,
+        &workspace_proof,
         &app_data_json,
         client_updated_at_epoch_millis,
+        acknowledged_generation,
+        &restore_receipt,
         &device_name,
     );
+    new_java_string(&mut env, &result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeDownloadAccountAppData(
+    mut env: JNIEnv,
+    _class: JClass,
+    server_url: JString,
+    token: JString,
+    server_instance_id: JString,
+    account_namespace: JString,
+    workspace_id: JString,
+    workspace_proof: JString,
+    app_data_json: JString,
+    client_updated_at_epoch_millis: jlong,
+    acknowledged_generation: jlong,
+    restore_receipt: JString,
+    device_name: JString,
+) -> jstring {
+    let server_url = string_from_jstring(&mut env, &server_url);
+    let token = string_from_jstring(&mut env, &token);
+    let server_instance_id = string_from_jstring(&mut env, &server_instance_id);
+    let account_namespace = string_from_jstring(&mut env, &account_namespace);
+    let workspace_id = string_from_jstring(&mut env, &workspace_id);
+    let workspace_proof = string_from_jstring(&mut env, &workspace_proof);
+    let app_data_json = string_from_jstring(&mut env, &app_data_json);
+    let restore_receipt = string_from_jstring(&mut env, &restore_receipt);
+    let device_name = string_from_jstring(&mut env, &device_name);
+    let result = sync_core::download_account_app_data_with_workspace_capability_json(
+        &server_url,
+        &token,
+        &server_instance_id,
+        &account_namespace,
+        &workspace_id,
+        &workspace_proof,
+        &app_data_json,
+        client_updated_at_epoch_millis,
+        acknowledged_generation,
+        &restore_receipt,
+        &device_name,
+    );
+    new_java_string(&mut env, &result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeValidateLegalReport(
+    mut env: JNIEnv,
+    _class: JClass,
+    report_json: JString,
+) -> jboolean {
+    let report_json = string_from_jstring(&mut env, &report_json);
+    let is_valid = serde_json::from_str::<legal_scan::LegalReport>(&report_json)
+        .ok()
+        .is_some_and(|report| legal_sources::validate_report_sources(&report).is_ok());
+    if is_valid {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeLegalReportsRequest(
+    mut env: JNIEnv,
+    _class: JClass,
+    server_url: JString,
+    token: JString,
+    operation: JString,
+    request_json: JString,
+) -> jstring {
+    let server_url = string_from_jstring(&mut env, &server_url);
+    let token = string_from_jstring(&mut env, &token);
+    let operation = string_from_jstring(&mut env, &operation);
+    let request_json = string_from_jstring(&mut env, &request_json);
+    let result =
+        sync_core::legal_reports_request_json(&server_url, &token, &operation, &request_json);
     new_java_string(&mut env, &result)
 }
 
@@ -1697,6 +2566,50 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         &api_key,
         &base_url,
         &model,
+        &question,
+        &source_titles,
+        &source_folders,
+        &source_excerpts,
+    );
+    let ok = if result.ok { "true" } else { "false" };
+    let values = [ok, result.message.as_str(), result.content.as_str()];
+    string_array_from_slice(&mut env, &values)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeCompleteAndroidAiQuery(
+    mut env: JNIEnv,
+    _class: JClass,
+    api_key: JString,
+    base_url: JString,
+    model: JString,
+    mode: JString,
+    question: JString,
+    source_titles: JObjectArray,
+    source_folders: JObjectArray,
+    source_excerpts: JObjectArray,
+) -> jobjectArray {
+    let api_key = string_from_jstring(&mut env, &api_key);
+    let base_url = string_from_jstring(&mut env, &base_url);
+    let model = string_from_jstring(&mut env, &model);
+    let mode = string_from_jstring(&mut env, &mode);
+    let question = string_from_jstring(&mut env, &question);
+    // General questions neither read nor forward knowledge arrays. The Rust
+    // request builder independently enforces the same separation.
+    let (source_titles, source_folders, source_excerpts) = if mode == "direct" {
+        (Vec::new(), Vec::new(), Vec::new())
+    } else {
+        (
+            string_array_values(&mut env, &source_titles).unwrap_or_default(),
+            string_array_values(&mut env, &source_folders).unwrap_or_default(),
+            string_array_values(&mut env, &source_excerpts).unwrap_or_default(),
+        )
+    };
+    let result = ai_client::complete_android_query(
+        &api_key,
+        &base_url,
+        &model,
+        &mode,
         &question,
         &source_titles,
         &source_folders,
@@ -1826,6 +2739,35 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     app_data_json: JString,
     note_json: JString,
     now: jlong,
+) -> jobjectArray {
+    let app_data_json: String = match env.get_string(&app_data_json) {
+        Ok(value) => value.into(),
+        Err(_) => return empty_string_array(&mut env),
+    };
+    let note_json: String = match env.get_string(&note_json) {
+        Ok(value) => value.into(),
+        Err(_) => return empty_string_array(&mut env),
+    };
+    match app_data::upsert_note_app_data_json_typed(&app_data_json, &note_json, now) {
+        app_data::NoteUpsertResult::Applied(value) => {
+            string_array_from_slice(&mut env, &["applied", value.as_str()])
+        }
+        app_data::NoteUpsertResult::Rejected(reason) => {
+            string_array_from_slice(&mut env, &["rejected", reason.as_str()])
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeCreateNoteVersionAppDataJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    app_data_json: JString,
+    note_json: JString,
+    source_version_id: JString,
+    expected_latest_version_id: JString,
+    request_id: JString,
+    now: jlong,
 ) -> jstring {
     let app_data_json: String = match env.get_string(&app_data_json) {
         Ok(value) => value.into(),
@@ -1835,7 +2777,26 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         Ok(value) => value.into(),
         Err(_) => return std::ptr::null_mut(),
     };
-    match app_data::upsert_note_app_data_json(&app_data_json, &note_json, now) {
+    let source_version_id: String = match env.get_string(&source_version_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let expected_latest_version_id: String = match env.get_string(&expected_latest_version_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let request_id: String = match env.get_string(&request_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match app_data::create_note_version_app_data_json(
+        &app_data_json,
+        &note_json,
+        &source_version_id,
+        &expected_latest_version_id,
+        &request_id,
+        now,
+    ) {
         Some(value) => new_java_string(&mut env, &value),
         None => std::ptr::null_mut(),
     }
@@ -2373,6 +3334,20 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeResolveThemeTokens(
+    env: JNIEnv,
+    _class: JClass,
+    preference_code: jint,
+    system_is_dark: jboolean,
+) -> jlongArray {
+    let Some(preference) = theme_core::ThemePreference::from_code(preference_code) else {
+        return empty_long_array_from_env(env);
+    };
+    let values = theme_core::resolve_theme(preference, system_is_dark == JNI_TRUE).to_jni_values();
+    long_array_from_slice(env, &values)
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeNoteFolderCountPairs(
     mut env: JNIEnv,
     _class: JClass,
@@ -2442,6 +3417,28 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         Err(_) => return std::ptr::null_mut(),
     };
     match app_data::update_finance_profile_app_data_json(&app_data_json, &profile_json, now) {
+        Some(value) => new_java_string(&mut env, &value),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeMergeFinanceProfileAppDataJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    app_data_json: JString,
+    profile_json: JString,
+    now: jlong,
+) -> jstring {
+    let app_data_json: String = match env.get_string(&app_data_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let profile_json: String = match env.get_string(&profile_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match app_data::merge_finance_profile_app_data_json(&app_data_json, &profile_json, now) {
         Some(value) => new_java_string(&mut env, &value),
         None => std::ptr::null_mut(),
     }
@@ -3173,20 +4170,23 @@ fn compute_finance_snapshot(
         safe_living_expense_monthly.saturating_add(safe_liability_payment_monthly);
     let net_cashflow_monthly = total_income_monthly - total_outflow_monthly;
     let freedom_gap_monthly = (total_outflow_monthly - safe_asset_income_monthly).max(0);
-    let passive_coverage_ratio = safe_ratio(safe_asset_income_monthly, total_outflow_monthly);
+    let passive_coverage_ratio =
+        positive_numerator_ratio(safe_asset_income_monthly, total_outflow_monthly);
     let wage_dependence_ratio = safe_ratio(safe_active_income_monthly, total_income_monthly);
-    let liability_pressure_ratio = safe_ratio(safe_liability_payment_monthly, total_income_monthly);
+    let liability_pressure_ratio =
+        positive_numerator_ratio(safe_liability_payment_monthly, total_income_monthly);
     let net_worth =
         safe_productive_asset_value.saturating_add(safe_cash_reserve) - safe_liability_balance;
     let defensive_base = total_outflow_monthly - safe_asset_income_monthly;
-    let defensive_months = if safe_cash_reserve <= 0 {
-        0.0
-    } else if defensive_base <= 0 {
+    let defensive_months = if defensive_base <= 0 {
         f64::NAN
+    } else if safe_cash_reserve <= 0 {
+        0.0
     } else {
         safe_cash_reserve as f64 / defensive_base as f64
     };
-    let asset_yield_ratio = safe_ratio(safe_asset_income_monthly, safe_productive_asset_value);
+    let asset_yield_ratio =
+        positive_numerator_ratio(safe_asset_income_monthly, safe_productive_asset_value);
 
     [
         total_income_monthly as f64,
@@ -3242,22 +4242,18 @@ fn compute_finance_ledger_hint(
             let living_ratio = safe_ratio(living_total, income_total);
             let learning_ratio = safe_ratio(learning_total, income_total);
 
-            let mut near_count = 0;
-            if within_target_ratio(debt_ratio, 0.30) {
-                near_count += 1;
-            }
-            if within_target_ratio(food_ratio, 0.20) {
-                near_count += 1;
-            }
-            if within_target_ratio(btc_ratio, 0.10) {
-                near_count += 1;
-            }
-            if within_target_ratio(living_ratio, 0.30) {
-                near_count += 1;
-            }
-            if within_target_ratio(learning_ratio, 0.10) {
-                near_count += 1;
-            }
+            let healthy_count = [
+                (FINANCE_BUCKET_DEBT, debt_ratio, 0.30),
+                (FINANCE_BUCKET_FOOD, food_ratio, 0.20),
+                (FINANCE_BUCKET_BTC, btc_ratio, 0.10),
+                (FINANCE_BUCKET_LIVING, living_ratio, 0.30),
+                (FINANCE_BUCKET_LEARNING, learning_ratio, 0.10),
+            ]
+            .into_iter()
+            .filter(|(bucket, actual, target)| {
+                is_finance_bucket_drift_healthy(*bucket, *actual as f32, *target as f32)
+            })
+            .count();
 
             if debt_ratio > 0.40 {
                 HINT_DEBT_HIGH
@@ -3267,7 +4263,7 @@ fn compute_finance_ledger_hint(
                 HINT_BTC_LOW
             } else if learning_ratio < 0.05 {
                 HINT_LEARNING_LOW
-            } else if near_count >= 3 {
+            } else if healthy_count >= 3 {
                 HINT_STRUCTURE_GOOD
             } else {
                 HINT_TRIM_EXPENSE
@@ -3365,10 +4361,13 @@ fn compute_finance_ledger_hint_with_targets(
                 target(3, 0.30),
                 target(4, 0.10),
             ];
-            let near_count = ratios
+            let healthy_count = ratios
                 .iter()
                 .zip(targets.iter())
-                .filter(|(actual, target)| within_target_ratio(**actual, **target))
+                .enumerate()
+                .filter(|(index, (actual, target))| {
+                    is_finance_bucket_drift_healthy(*index as i32, **actual as f32, **target as f32)
+                })
                 .count();
 
             if ratios[0] > (targets[0] + 0.10).min(0.60) {
@@ -3379,7 +4378,7 @@ fn compute_finance_ledger_hint_with_targets(
                 HINT_BTC_LOW
             } else if ratios[4] < targets[4] * 0.5 {
                 HINT_LEARNING_LOW
-            } else if near_count >= 3 {
+            } else if healthy_count >= 3 {
                 HINT_STRUCTURE_GOOD
             } else {
                 HINT_TRIM_EXPENSE
@@ -3453,12 +4452,9 @@ fn transform_note_content(
             normalized_end_utf16,
             QUOTE_PREFIX,
         ),
-        NoteTextAction::Todo => transform_prefixed_lines(
-            content,
-            normalized_start_utf16,
-            normalized_end_utf16,
-            TODO_PREFIX,
-        ),
+        NoteTextAction::Todo => {
+            transform_checklist_lines(content, normalized_start_utf16, normalized_end_utf16)
+        }
         NoteTextAction::Bold => {
             transform_bold(content, normalized_start_utf16, normalized_end_utf16)
         }
@@ -3518,6 +4514,9 @@ fn remove_rich_text_attachment_reference(html: &str, attachment_id: &str) -> Str
 
     let without_figures = remove_matching_figure_blocks(html, attachment_id);
     let without_images = remove_matching_image_tags(&without_figures, attachment_id);
+    if without_images == html {
+        return without_images;
+    }
     collapse_repeated_blank_paragraphs(&without_images)
         .trim()
         .to_string()
@@ -3641,7 +4640,7 @@ fn is_valid_finance_month_key(value: &str) -> bool {
     (1..=12).contains(&month)
 }
 
-fn shift_finance_day_key(value: &str, offset: i64) -> Option<String> {
+pub fn shift_finance_day_key(value: &str, offset: i64) -> Option<String> {
     let (year, month, day) = parse_finance_date_components(value)?;
     let shifted_days =
         days_from_civil(year as i64, month as i64, day as i64).checked_add(offset)?;
@@ -3655,7 +4654,7 @@ fn shift_finance_day_key(value: &str, offset: i64) -> Option<String> {
     ))
 }
 
-fn shift_finance_month_key(value: &str, offset: i64) -> Option<String> {
+pub fn shift_finance_month_key(value: &str, offset: i64) -> Option<String> {
     if !is_valid_finance_month_key(value) {
         return None;
     }
@@ -3919,12 +4918,15 @@ fn push_unique_trimmed(values: &mut Vec<String>, value: String) {
 }
 
 fn quoted_attribute_values(html: &str, attr_name: &str) -> Vec<String> {
+    if attr_name.is_empty() {
+        return Vec::new();
+    }
     let lower = html.to_ascii_lowercase();
     let attr = attr_name.to_ascii_lowercase();
     let mut values = Vec::new();
     let mut search_start = 0usize;
 
-    while let Some(relative_index) = lower[search_start..].find(&attr) {
+    while let Some(relative_index) = lower.get(search_start..).and_then(|tail| tail.find(&attr)) {
         let attr_start = search_start + relative_index;
         if !is_attribute_name_boundary(html, attr_start, attr.len()) {
             search_start = attr_start + attr.len();
@@ -3952,10 +4954,11 @@ fn quoted_attribute_values(html: &str, attr_name: &str) -> Vec<String> {
         while cursor < html.len() && html.as_bytes()[cursor] != quote {
             cursor += 1;
         }
-        if cursor <= html.len() {
-            values.push(html[value_start..cursor].to_string());
+        if cursor == html.len() {
+            break;
         }
-        search_start = cursor.saturating_add(1);
+        values.push(html[value_start..cursor].to_string());
+        search_start = cursor + 1;
     }
 
     values
@@ -4107,7 +5110,10 @@ fn consume_blank_break(html: &str, start: usize) -> Option<usize> {
 
 fn consume_ascii_case_insensitive(html: &str, start: usize, token: &str) -> Option<usize> {
     let end = start.checked_add(token.len())?;
-    if end <= html.len() && html[start..end].eq_ignore_ascii_case(token) {
+    if html
+        .get(start..end)
+        .is_some_and(|value| value.eq_ignore_ascii_case(token))
+    {
         Some(end)
     } else {
         None
@@ -4294,6 +5300,101 @@ fn transform_prefixed_lines(
     }
 }
 
+fn transform_checklist_lines(
+    content: &str,
+    selection_start_utf16: usize,
+    selection_end_utf16: usize,
+) -> NoteTextEdit {
+    let (block_start, block_end) =
+        line_block_range(content, selection_start_utf16, selection_end_utf16);
+    let original_block = &content[block_start..block_end];
+    let lines: Vec<&str> = original_block.split('\n').collect();
+    let transformed_lines = lines
+        .iter()
+        .map(|line| toggle_checklist_line(line))
+        .collect::<Vec<String>>();
+    let transformed_block = transformed_lines.join("\n");
+
+    let mut updated_content = String::with_capacity(content.len() + transformed_block.len());
+    updated_content.push_str(&content[..block_start]);
+    updated_content.push_str(&transformed_block);
+    updated_content.push_str(&content[block_end..]);
+
+    if selection_start_utf16 != selection_end_utf16 {
+        return NoteTextEdit {
+            selection_start_utf16: byte_to_utf16_index(&updated_content, block_start),
+            selection_end_utf16: byte_to_utf16_index(
+                &updated_content,
+                block_start + transformed_block.len(),
+            ),
+            content: updated_content,
+        };
+    }
+
+    let start_byte = utf16_to_byte_index(content, selection_start_utf16);
+    let line_offset = start_byte.saturating_sub(block_start);
+    let current_line_index = original_block[..line_offset.min(original_block.len())]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count();
+    let current_line_start = original_block[..line_offset.min(original_block.len())]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let cursor_offset_in_line = line_offset.saturating_sub(current_line_start);
+    let original_line = lines.get(current_line_index).copied().unwrap_or_default();
+    let transformed_line = transformed_lines
+        .get(current_line_index)
+        .map(String::as_str)
+        .unwrap_or_default();
+    let original_prefix_len = checklist_prefix_len(original_line);
+    let transformed_prefix_len = checklist_prefix_len(transformed_line);
+    let cursor_offset = if original_prefix_len == 0 {
+        cursor_offset_in_line.saturating_add(transformed_prefix_len)
+    } else if cursor_offset_in_line <= original_prefix_len {
+        cursor_offset_in_line.min(transformed_prefix_len)
+    } else {
+        transformed_prefix_len.saturating_add(cursor_offset_in_line - original_prefix_len)
+    }
+    .min(transformed_line.len());
+    let cursor_byte = block_start + current_line_start + cursor_offset;
+    let cursor_utf16 =
+        byte_to_utf16_index(&updated_content, cursor_byte.min(updated_content.len()));
+    NoteTextEdit {
+        content: updated_content,
+        selection_start_utf16: cursor_utf16,
+        selection_end_utf16: cursor_utf16,
+    }
+}
+
+fn checklist_prefix_len(line: &str) -> usize {
+    if line.starts_with(TODO_PREFIX) {
+        TODO_PREFIX.len()
+    } else if line
+        .get(..TODO_DONE_PREFIX.len())
+        .map(|prefix| prefix.eq_ignore_ascii_case(TODO_DONE_PREFIX))
+        .unwrap_or(false)
+    {
+        TODO_DONE_PREFIX.len()
+    } else {
+        0
+    }
+}
+
+fn toggle_checklist_line(line: &str) -> String {
+    if let Some(payload) = line.strip_prefix(TODO_PREFIX) {
+        format!("{TODO_DONE_PREFIX}{payload}")
+    } else if line
+        .get(..TODO_DONE_PREFIX.len())
+        .map(|prefix| prefix.eq_ignore_ascii_case(TODO_DONE_PREFIX))
+        .unwrap_or(false)
+    {
+        format!("{TODO_PREFIX}{}", &line[TODO_DONE_PREFIX.len()..])
+    } else {
+        format!("{TODO_PREFIX}{line}")
+    }
+}
+
 fn transform_centered_lines(
     content: &str,
     selection_start_utf16: usize,
@@ -4470,7 +5571,11 @@ fn line_block_range(
     let end_byte = utf16_to_byte_index(content, selection_end_utf16);
     let block_start = line_start(content, start_byte);
     let inclusive_end_byte = if selection_start_utf16 == selection_end_utf16 {
-        start_byte.min(content.len().saturating_sub(1))
+        if start_byte == content.len() {
+            previous_char_start(content, start_byte)
+        } else {
+            start_byte
+        }
     } else if end_byte > start_byte && content.as_bytes()[end_byte - 1] == b'\n' {
         end_byte - 1
     } else {
@@ -4588,10 +5693,7 @@ fn rank_knowledge_source_indices(
         }
     }
     scored.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
-    scored
-        .into_iter()
-        .map(|(_, index)| index as jint)
-        .collect()
+    scored.into_iter().map(|(_, index)| index as jint).collect()
 }
 
 fn normalize_knowledge_keywords(query: &str) -> Vec<String> {
@@ -4624,8 +5726,27 @@ fn is_cjk(ch: char) -> bool {
 fn is_common_cjk_stopword(ch: char) -> bool {
     matches!(
         ch,
-        '的' | '了' | '是' | '在' | '和' | '或' | '与' | '吗' | '呢' | '啊' | '这' | '那'
-            | '我' | '你' | '他' | '她' | '它' | '们' | '一' | '个' | '怎' | '么'
+        '的' | '了'
+            | '是'
+            | '在'
+            | '和'
+            | '或'
+            | '与'
+            | '吗'
+            | '呢'
+            | '啊'
+            | '这'
+            | '那'
+            | '我'
+            | '你'
+            | '他'
+            | '她'
+            | '它'
+            | '们'
+            | '一'
+            | '个'
+            | '怎'
+            | '么'
     )
 }
 
@@ -4651,7 +5772,7 @@ fn render_note_document_html(payload: NoteHtmlPayload) -> String {
                     continue;
                 }
                 let html = if payload.rich_text_enabled {
-                    text
+                    sanitize_rich_text_html(&text)
                 } else if payload.markdown_enabled {
                     markdown_to_html(&text)
                 } else {
@@ -4742,7 +5863,8 @@ fn render_note_document_html(payload: NoteHtmlPayload) -> String {
                     escape_html(&headline)
                 ));
                 let mut meta_parts = Vec::<String>::new();
-                if !call_number.trim().is_empty() && call_name.trim().is_empty() {
+                #[cfg(not(target_os = "android"))]
+                if !call_number.trim().is_empty() && !call_name.trim().is_empty() {
                     meta_parts.push(call_number.trim().to_owned());
                 }
                 if let Some(direction) = block.call_direction {
@@ -4788,7 +5910,7 @@ fn render_note_document_html(payload: NoteHtmlPayload) -> String {
     }
 
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><style>{}</style></head><body><main class=\"note-shell\"><header class=\"note-header\"><div class=\"note-kicker\"></div><h1>{}</h1><p class=\"note-meta\">{}</p></header><div class=\"note-body\">{}</div></main></body></html>",
+        "<!doctype html><html><head><meta charset=\"utf-8\"/><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><style>{}</style></head><body><main class=\"note-shell\"><header class=\"note-header\"><div class=\"note-kicker\"></div><h1>{}</h1><p class=\"note-meta\">{}</p></header><div class=\"note-body\">{}</div></main></body></html>",
         note_html_css(accent),
         escape_html(payload.title.trim()),
         escape_html(payload.meta.trim()),
@@ -4857,10 +5979,14 @@ fn render_standard_markdown(markdown: &str) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
-    let parser = Parser::new_ext(markdown, options);
+    // Keep read-only task states without allowing interactive form elements.
+    let parser = Parser::new_ext(markdown, options).map(|event| match event {
+        Event::TaskListMarker(done) => Event::Text(if done { "☑ " } else { "☐ " }.into()),
+        other => other,
+    });
     let mut rendered = String::new();
     html::push_html(&mut rendered, parser);
-    rendered
+    sanitize_rich_text_html(&rendered)
 }
 
 fn plain_text_to_html(text: &str) -> String {
@@ -5062,9 +6188,67 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
 ) -> jlong {
     let value: String = match env.get_string(&value) {
         Ok(value) => value.into(),
-        Err(_) => return 0,
+        Err(_) => return -1,
     };
     parse_finance_amount_draft(&value, max_digits.max(0) as usize, max_amount.max(0))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeFinanceMinorInputHint(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    new_java_string(&mut env, finance_money::INPUT_HINT)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeParseFinanceMinorDraft(
+    mut env: JNIEnv,
+    _class: JClass,
+    value: JString,
+    max_digits: jint,
+    max_whole: jlong,
+) -> jlong {
+    let value: String = match env.get_string(&value) {
+        Ok(value) => value.into(),
+        Err(_) => return -1,
+    };
+    finance_money::parse_minor_draft(&value, max_digits.max(0) as usize, max_whole).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeFormatFinanceMinor(
+    mut env: JNIEnv,
+    _class: JClass,
+    amount: jlong,
+    prefix: JString,
+    signed: jboolean,
+    grouped: jboolean,
+) -> jstring {
+    let prefix: String = match env.get_string(&prefix) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    new_java_string(
+        &mut env,
+        &finance_money::format_minor(amount, &prefix, signed != 0, grouped != 0),
+    )
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeProjectFinanceMinorProfileJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    profile_json: JString,
+) -> jstring {
+    let raw: String = match env.get_string(&profile_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match finance_money::project_profile_json(&raw) {
+        Some(projected) => new_java_string(&mut env, &projected),
+        None => std::ptr::null_mut(),
+    }
 }
 
 #[no_mangle]
@@ -7102,15 +8286,13 @@ fn restore_target_slot_id(
         })
 }
 
-fn has_finance_row_draft_content(name: &str, amount: i64, note: Option<&str>) -> bool {
-    name.trim().len() > 0
-        || amount > 0
-        || note.map(str::trim).is_some_and(|value| !value.is_empty())
+fn has_finance_row_draft_content(name: &str, amount: i64, _note: Option<&str>) -> bool {
+    !name.trim().is_empty() && amount > 0
 }
 
 fn normalize_repository_text(
     value: &str,
-    max_length: usize,
+    _max_length: usize,
     trim_start_only: bool,
     compact_whitespace: bool,
 ) -> String {
@@ -7124,7 +8306,7 @@ fn normalize_repository_text(
     } else {
         trimmed.to_string()
     };
-    normalized.chars().take(max_length).collect()
+    normalized
 }
 
 fn compact_repository_whitespace(value: &str) -> String {
@@ -7184,30 +8366,31 @@ fn build_note_revision_plan(
     previous_exists: bool,
     should_capture: bool,
     snapshot_id: &str,
-    max_count: usize,
+    _max_count: usize,
 ) -> Vec<i32> {
     let count = revision_ids.len();
-    if captured_at_epoch_millis.len() != count
-        || matches_previous_flags.len() != count
-        || max_count == 0
-    {
+    if captured_at_epoch_millis.len() != count || matches_previous_flags.len() != count {
         return Vec::new();
     }
 
-    let mut seen = HashSet::<&str>::new();
-    let mut base_indices = Vec::<usize>::new();
+    let mut newest_by_id = HashMap::<&str, usize>::new();
     for (index, id) in revision_ids.iter().enumerate() {
-        if seen.insert(id.as_str()) {
-            base_indices.push(index);
+        match newest_by_id.get(id.as_str()).copied() {
+            Some(existing)
+                if captured_at_epoch_millis[existing] >= captured_at_epoch_millis[index] => {}
+            _ => {
+                newest_by_id.insert(id.as_str(), index);
+            }
         }
     }
+    let mut base_indices = newest_by_id.into_values().collect::<Vec<_>>();
     base_indices.sort_by(|left, right| {
         captured_at_epoch_millis[*right]
             .cmp(&captured_at_epoch_millis[*left])
             .then_with(|| left.cmp(right))
     });
 
-    let mut plan = Vec::<i32>::with_capacity(max_count);
+    let mut plan = Vec::<i32>::with_capacity(base_indices.len() + 1);
     let include_snapshot = previous_exists && should_capture;
     if include_snapshot {
         plan.push(-1);
@@ -7219,11 +8402,7 @@ fn build_note_revision_plan(
             continue;
         }
         plan.push(index as i32);
-        if plan.len() >= max_count {
-            break;
-        }
     }
-    plan.truncate(max_count);
     plan
 }
 
@@ -7404,18 +8583,18 @@ fn aggregate_finance_ledgers(
     }
 
     let mut aggregate = FinanceLedgerAggregateNative::empty();
-    let mut day_has_data: Vec<bool> = selected_days
+    // This legacy wire field now carries an explicit zero-transaction-day
+    // confirmation. Ordinary notes never count as cashflow coverage.
+    let mut day_has_data = selected_days
         .iter()
-        .map(|day_code| {
+        .map(|selected_day| {
             ledger_day_codes
                 .iter()
-                .position(|candidate| candidate == day_code)
+                .position(|candidate| candidate == selected_day)
                 .and_then(|index| ledger_note_flags.get(index))
-                .copied()
-                .unwrap_or(0)
-                != 0
+                .is_some_and(|flag| *flag != 0)
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     for (index, day_code) in income_day_codes.iter().enumerate() {
         let Some(day_index) = selected_days
@@ -7501,7 +8680,7 @@ fn aggregate_finance_day_ledger_values(
     income_amounts: &[i64],
     expense_bucket_codes: &[i32],
     expense_amounts: &[i64],
-    has_note: bool,
+    is_confirmed: bool,
 ) -> Option<[i64; 10]> {
     if income_kind_codes.len() != income_amounts.len()
         || expense_bucket_codes.len() != expense_amounts.len()
@@ -7510,7 +8689,7 @@ fn aggregate_finance_day_ledger_values(
     }
 
     let mut aggregate = FinanceLedgerAggregateNative::empty();
-    let mut has_data = has_note;
+    let mut has_data = is_confirmed;
     for (index, kind_code) in income_kind_codes.iter().enumerate() {
         let amount = income_amounts[index].max(0);
         if amount > 0 {
@@ -7681,6 +8860,22 @@ fn finance_snapshot_values(
     fields
 }
 
+fn finance_health_score_values(values: finance_profile::FinanceHealthScoreValues) -> [f64; 11] {
+    [
+        values.score as f64,
+        values.risk_level_code as f64,
+        values.cashflow_score as f64,
+        values.defensive_score as f64,
+        values.liability_score as f64,
+        values.passive_score as f64,
+        values.wage_score as f64,
+        values.record_score as f64,
+        values.discipline_score as f64,
+        values.momentum_score as f64,
+        values.warning_count as f64,
+    ]
+}
+
 fn finance_narrative_code(
     has_entries: bool,
     passive_coverage_ratio: f32,
@@ -7731,6 +8926,8 @@ fn resolve_micro_break(
     let mut latest_transition_at: Option<i64> = None;
     let mut sessions = Vec::<NativeMicroBreakSession>::new();
     let mut transitions = Vec::<NativeMicroBreakTransition>::new();
+    let mut phase_steps = 0_usize;
+    let mut complete = true;
 
     loop {
         let phase_target = micro_break_phase_target_millis(slot_id, phase, cycle_index);
@@ -7755,6 +8952,11 @@ fn resolve_micro_break(
                     occurred_at_epoch_millis: active_segment_start,
                 });
                 latest_transition_at = Some(active_segment_start);
+            }
+            phase_steps += 1;
+            if phase_steps >= MICRO_BREAK_RESOLUTION_MAX_PHASE_STEPS {
+                complete = false;
+                break;
             }
             continue;
         }
@@ -7792,6 +8994,11 @@ fn resolve_micro_break(
         phase_progress = 0;
         active_segment_start = transition_at;
         remaining_elapsed = remaining_elapsed.saturating_sub(remaining_in_phase);
+        phase_steps += 1;
+        if phase_steps >= MICRO_BREAK_RESOLUTION_MAX_PHASE_STEPS {
+            complete = false;
+            break;
+        }
     }
 
     Some(NativeMicroBreakResolution {
@@ -7803,6 +9010,7 @@ fn resolve_micro_break(
         updated_at: latest_transition_at
             .map(|transition_at| transition_at.max(updated_at.max(0)))
             .unwrap_or_else(|| updated_at.max(0)),
+        complete,
         sessions,
         transitions,
     })
@@ -7968,16 +9176,22 @@ fn sanitize_finance_draft(value: &str, max_length: usize) -> String {
 }
 
 fn parse_finance_amount_draft(value: &str, max_digits: usize, max_amount: i64) -> i64 {
-    let digits: String = value
-        .chars()
-        .filter(char::is_ascii_digit)
-        .take(max_digits)
-        .collect();
-    digits
-        .parse::<i64>()
+    let value = value.trim();
+    if value.is_empty() {
+        return 0;
+    }
+    if max_digits == 0
+        || value.len() > max_digits
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return -1;
+    }
+    value
+        .parse::<u128>()
         .ok()
-        .map(|amount| amount.min(max_amount.max(0)).max(0))
-        .unwrap_or(0)
+        .filter(|amount| *amount <= max_amount.max(0) as u128)
+        .map(|amount| amount as i64)
+        .unwrap_or(-1)
 }
 
 fn parse_finance_target_share(value: &str) -> Option<f32> {
@@ -8081,8 +9295,14 @@ fn finance_settings_target_summary(
             if safe_label.is_empty() {
                 return None;
             }
+            let constraint = match *bucket_code {
+                FINANCE_BUCKET_DEBT | FINANCE_BUCKET_FOOD | FINANCE_BUCKET_LIVING => "≤",
+                FINANCE_BUCKET_BTC | FINANCE_BUCKET_LEARNING => "≥",
+                FINANCE_BUCKET_OTHER => "≈",
+                _ => return None,
+            };
             Some(format!(
-                "{safe_label} {}",
+                "{safe_label} {constraint}{}",
                 format_rounded_percent(*target_share)
             ))
         })
@@ -8098,6 +9318,7 @@ fn is_primary_finance_bucket(bucket_code: i32) -> bool {
             | FINANCE_BUCKET_BTC
             | FINANCE_BUCKET_LIVING
             | FINANCE_BUCKET_LEARNING
+            | FINANCE_BUCKET_OTHER
     )
 }
 
@@ -8214,7 +9435,7 @@ fn format_signed_percent(value: f32) -> String {
 
 fn format_defensive_coverage(coverage: f32, unit_label: &str) -> String {
     if coverage.is_nan() {
-        "已覆盖".to_string()
+        "无法判断".to_string()
     } else if coverage <= 0.0 {
         format!("0.0 {unit_label}")
     } else if coverage >= 99.0 {
@@ -8230,21 +9451,18 @@ fn format_asset_liability_ratio(asset_total: i64, liability_total: i64) -> Strin
     } else if asset_total > 0 {
         "\u{221e}".to_string()
     } else {
-        "0.00".to_string()
+        "--".to_string()
     }
 }
 
 fn finance_coverage_caption(period_code: i32) -> &'static str {
-    match period_code {
-        0 => "现金储备还能顶多少天",
-        1 => "现金储备还能顶多少个月",
-        2 => "现金储备还能顶多少个季度",
-        3 => "现金储备还能顶多少年",
-        _ => "现金储备还能顶多久",
-    }
+    let _ = period_code;
+    "按月度净流出速度折算"
 }
 
 fn micro_break_resolution_values(resolution: &NativeMicroBreakResolution) -> Vec<i64> {
+    debug_assert!(resolution.sessions.len() <= MICRO_BREAK_RESOLUTION_MAX_SESSIONS);
+    debug_assert!(resolution.transitions.len() <= MICRO_BREAK_RESOLUTION_MAX_TRANSITIONS);
     let mut values =
         Vec::with_capacity(8 + resolution.sessions.len() * 3 + resolution.transitions.len() * 2);
     values.push(resolution.accumulated_millis);
@@ -9021,11 +10239,14 @@ fn safe_ratio(numerator: i64, denominator: i64) -> f64 {
     numerator as f64 / denominator as f64
 }
 
-fn within_target_ratio(actual: f64, target: f64) -> bool {
-    if actual <= 0.0 || target <= 0.0 {
-        return false;
+fn positive_numerator_ratio(numerator: i64, denominator: i64) -> f64 {
+    if numerator <= 0 {
+        0.0
+    } else if denominator <= 0 {
+        1.0
+    } else {
+        numerator as f64 / denominator as f64
     }
-    (actual - target).abs() <= target * 0.15
 }
 
 fn finance_period_scale(period_code: jint) -> f64 {
@@ -9077,6 +10298,41 @@ impl NoteTextAction {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn exported_markdown_retains_task_states_without_allowing_form_elements() {
+        let payload = serde_json::from_value(serde_json::json!({
+            "title":"回归", "meta":"", "accent_seed":"amber", "markdown_enabled":true,
+            "rich_text_enabled":false, "blocks":[{"type":"TEXT", "text":"- [x] 777\n- [ ] 777\n  - [x] 中文😀\n\n<input type='text' value='unsafe'>\n<script>alert(1)</script>"}]
+        })).unwrap();
+        let html = super::render_note_document_html(payload);
+        assert!(html.contains("☑ 777"));
+        assert!(html.contains("☐ 777"));
+        assert!(html.contains("☑ 中文😀"));
+        assert!(!html.contains("<input"));
+        assert!(!html.contains("<script"));
+        assert!(!html.contains("alert(1)"));
+        let code = super::render_standard_markdown("```text\n- [x] literal\n```");
+        assert!(!code.contains("☑ literal"));
+    }
+
+    #[test]
+    fn editor_attachment_cleanup_preserves_unicode_and_rejects_truncated_attributes() {
+        for text in ["a中文", "ab中文", "😀", "é中", "e\u{301}日", "𠮷"] {
+            let html = format!("<p>{text}</p><img src=\"note-image://one\"><p>{text}</p>");
+            assert_eq!(
+                format!("<p>{text}</p><p>{text}</p>"),
+                super::remove_rich_text_attachment_reference(&html, "one")
+            );
+            let unrelated = format!("  <p>{text}</p><p><br></p><p><br></p>  ");
+            assert_eq!(
+                unrelated,
+                super::remove_rich_text_attachment_reference(&unrelated, "one")
+            );
+        }
+        assert!(super::quoted_attribute_values("<img src=\"中文", "src").is_empty());
+        assert!(super::quoted_attribute_values("<img src='a'>", "").is_empty());
+    }
+
     use super::{
         aggregate_finance_day_ledger_values, aggregate_finance_ledgers,
         archived_task_display_title, build_history_search_haystack, build_note_collection_sections,
@@ -9105,17 +10361,17 @@ mod tests {
         safe_elapsed_millis, sanitize_finance_draft, shift_finance_day_key,
         shift_finance_month_key, should_capture_note_revision,
         should_request_timer_notification_permission, should_run_timer_live_update_refresh,
-        should_sync_timer_live_update, slot_label, sort_note_indices,
-        sort_trashed_note_indices, stabilize_timer_slot_insert_index,
-        summarize_finance_month_snapshot, timer_slot_displacement_target_pairs,
-        timer_slot_display_title, timer_tile_auto_scroll_step, timer_tile_today_stats_label,
-        transform_note_content, NativePoint, NativeRect, NoteTextAction,
-        TimerSlotDropTargetCandidate, TimerSlotInsertCandidate, XiaomiPayloadState,
-        CENTER_WRAP_START, FINANCE_BUCKET_BTC, FINANCE_BUCKET_DEBT, FINANCE_BUCKET_FOOD,
-        FINANCE_BUCKET_LIVING, FINANCE_BUCKET_OTHER, HEADING_PREFIX, JNI_FALSE, JNI_TRUE,
-        LIST_PREFIX, MICRO_BREAK_PHASE_BREAK, MICRO_BREAK_PHASE_FOCUS,
-        MICRO_BREAK_TRANSITION_BREAK_STARTED, MICRO_BREAK_TRANSITION_FOCUS_RESUMED, QUOTE_PREFIX,
-        TODO_PREFIX,
+        should_sync_timer_live_update, slot_label, sort_note_indices, sort_trashed_note_indices,
+        stabilize_timer_slot_insert_index, summarize_finance_month_snapshot,
+        timer_slot_displacement_target_pairs, timer_slot_display_title,
+        timer_tile_auto_scroll_step, timer_tile_today_stats_label, transform_note_content,
+        NativePoint, NativeRect, NoteTextAction, TimerSlotDropTargetCandidate,
+        TimerSlotInsertCandidate, XiaomiPayloadState, CENTER_WRAP_START, FINANCE_BUCKET_BTC,
+        FINANCE_BUCKET_DEBT, FINANCE_BUCKET_FOOD, FINANCE_BUCKET_LIVING, FINANCE_BUCKET_OTHER,
+        HEADING_PREFIX, JNI_FALSE, JNI_TRUE, LIST_PREFIX, MICRO_BREAK_PHASE_BREAK,
+        MICRO_BREAK_PHASE_FOCUS, MICRO_BREAK_RESOLUTION_MAX_SESSIONS,
+        MICRO_BREAK_RESOLUTION_MAX_TRANSITIONS, MICRO_BREAK_TRANSITION_BREAK_STARTED,
+        MICRO_BREAK_TRANSITION_FOCUS_RESUMED, QUOTE_PREFIX, TODO_DONE_PREFIX, TODO_PREFIX,
     };
     use serde_json::Value;
 
@@ -9167,6 +10423,56 @@ mod tests {
     fn todo_prefixes_current_line() {
         let edit = transform_note_content(NoteTextAction::Todo, "完成发布", 0, 0);
         assert_eq!(format!("{TODO_PREFIX}完成发布"), edit.content);
+    }
+
+    #[test]
+    fn todo_cycles_unchecked_completed_and_back_without_losing_unicode() {
+        let source = "中文🙂任务";
+        let cursor = source.encode_utf16().count();
+        let unchecked = transform_note_content(NoteTextAction::Todo, source, cursor, cursor);
+        assert_eq!(format!("{TODO_PREFIX}{source}"), unchecked.content);
+        assert_eq!(
+            TODO_PREFIX.encode_utf16().count() + cursor,
+            unchecked.selection_start_utf16
+        );
+
+        let completed = transform_note_content(
+            NoteTextAction::Todo,
+            &unchecked.content,
+            unchecked.selection_start_utf16,
+            unchecked.selection_end_utf16,
+        );
+        assert_eq!(format!("{TODO_DONE_PREFIX}{source}"), completed.content);
+
+        let reopened = transform_note_content(
+            NoteTextAction::Todo,
+            &completed.content,
+            completed.selection_start_utf16,
+            completed.selection_end_utf16,
+        );
+        assert_eq!(format!("{TODO_PREFIX}{source}"), reopened.content);
+        assert_eq!(
+            unchecked.selection_start_utf16,
+            reopened.selection_start_utf16
+        );
+    }
+
+    #[test]
+    fn todo_cycles_each_selected_line_and_keeps_the_transformed_block_selected() {
+        let source = format!("甲🙂\n{TODO_PREFIX}乙\n{TODO_DONE_PREFIX}丙");
+        let edit = transform_note_content(
+            NoteTextAction::Todo,
+            &source,
+            0,
+            source.encode_utf16().count(),
+        );
+        let expected = format!("{TODO_PREFIX}甲🙂\n{TODO_DONE_PREFIX}乙\n{TODO_PREFIX}丙");
+        assert_eq!(expected, edit.content);
+        assert_eq!(0, edit.selection_start_utf16);
+        assert_eq!(
+            edit.content.encode_utf16().count(),
+            edit.selection_end_utf16
+        );
     }
 
     #[test]
@@ -9528,6 +10834,28 @@ mod tests {
     }
 
     #[test]
+    fn finance_detail_aggregation_does_not_count_note_only_days() {
+        let aggregate = aggregate_finance_ledgers(
+            1,
+            2026,
+            4,
+            30,
+            &[20260401, 20260402],
+            &[0, 0],
+            &[20260402],
+            &[0],
+            &[100],
+            &[],
+            &[],
+            &[],
+        )
+        .expect("valid aggregate");
+
+        assert_eq!(1, aggregate.days_with_entries);
+        assert_eq!(100, aggregate.active_income_total);
+    }
+
+    #[test]
     fn finance_month_snapshot_summary_groups_assets_by_kind() {
         let summary =
             summarize_finance_month_snapshot(&[0, 1, 2], &[5_000, 20_000, 800], &[4_000, -1])
@@ -9537,7 +10865,7 @@ mod tests {
     }
 
     #[test]
-    fn finance_day_ledger_aggregate_groups_rows_and_note_presence() {
+    fn finance_day_ledger_aggregate_counts_explicit_zero_day_confirmation_not_notes() {
         let summary = aggregate_finance_day_ledger_values(
             &[0, 1, 2],
             &[800, 120, -3],
@@ -9548,6 +10876,12 @@ mod tests {
         .expect("valid day ledger");
 
         assert_eq!([800, 120, 0, 200, 50, 0, 0, 0, 25, 1], summary);
+        let note_only = aggregate_finance_day_ledger_values(&[], &[], &[], &[], false)
+            .expect("valid note-only ledger");
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 0, 0, 0], note_only);
+        let confirmed_zero = aggregate_finance_day_ledger_values(&[], &[], &[], &[], true)
+            .expect("valid confirmed zero ledger");
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 0, 0, 1], confirmed_zero);
     }
 
     #[test]
@@ -9577,6 +10911,22 @@ mod tests {
         assert_eq!(0, snapshot[1] as i64);
         assert_eq!(0, snapshot[2] as i64);
         assert_eq!(0, snapshot[7] as i64);
+    }
+
+    #[test]
+    fn finance_snapshot_handles_no_burn_and_positive_numerator_zero_denominator() {
+        let no_burn = compute_finance_snapshot(0, 0, 0, 0, 0, 0, 0);
+        assert!(no_burn[8].is_nan());
+        assert_eq!(0.0, no_burn[4]);
+        assert_eq!(0.0, no_burn[6]);
+
+        let asset_income_without_outflow = compute_finance_snapshot(0, 100, 0, 0, 0, 0, 0);
+        assert_eq!(1.0, asset_income_without_outflow[4]);
+        assert_eq!(1.0, asset_income_without_outflow[9]);
+
+        let repayment_without_income = compute_finance_snapshot(0, 0, 0, 100, 0, 0, 0);
+        assert_eq!(1.0, repayment_without_income[6]);
+        assert_eq!(0.0, repayment_without_income[8]);
     }
 
     #[test]
@@ -9646,7 +10996,7 @@ mod tests {
                 ]
             },
             "dailyLedgers": {
-                "2026-03-20": {
+                "2026-03-18": {
                     "incomes": [{"name": "Old", "kind": "ACTIVE", "amount": 800}],
                     "expenses": [{"name": "Old rent", "bucket": "LIVING", "amount": 300}]
                 },
@@ -9676,12 +11026,14 @@ mod tests {
         let trend = finance_profile::build_finance_trend_values(profile_json, 1, 2026, 4, 18)
             .expect("trend should parse");
 
-        assert_eq!(200, trend.income_delta);
-        assert_eq!(450, trend.outflow_delta);
-        assert_eq!(-250, trend.net_cashflow_delta);
+        assert_eq!(0, trend.income_delta);
+        assert_eq!(0, trend.outflow_delta);
+        assert_eq!(0, trend.net_cashflow_delta);
         assert_eq!(5500, trend.net_worth_delta);
         assert_eq!(1, trend.current_recorded_days);
         assert_eq!(1, trend.previous_recorded_days);
+        assert!(!trend.cashflow_comparison_available);
+        assert!(trend.net_worth_comparison_available);
         assert_eq!(FINANCE_BUCKET_DEBT, trend.most_off_target_bucket_code);
         assert!(trend.most_off_target_ratio_delta > 0.30);
     }
@@ -9708,11 +11060,12 @@ mod tests {
         let plan = finance_profile::build_finance_alert_plan_values(profile_json, 1, 2026, 4, 18)
             .expect("plan should parse");
 
-        assert_eq!(9, plan.len());
+        assert_eq!(12, plan.len());
         assert_eq!(1, plan[0]);
         assert_eq!(2, plan[3]);
-        assert_eq!(4, plan[6]);
-        assert_eq!(FINANCE_BUCKET_DEBT, plan[7]);
+        assert_eq!(3, plan[6]);
+        assert_eq!(4, plan[9]);
+        assert_eq!(FINANCE_BUCKET_DEBT, plan[10]);
     }
 
     #[test]
@@ -9781,6 +11134,22 @@ mod tests {
 
         assert_eq!(1, default_hint);
         assert_eq!(2, custom_hint);
+
+        let directionally_healthy = compute_finance_ledger_hint_with_targets(
+            1,
+            1_000,
+            570,
+            50,
+            50,
+            120,
+            200,
+            150,
+            430,
+            0,
+            0,
+            &[0.25, 0.18, 0.12, 0.30, 0.15],
+        );
+        assert_eq!(1, directionally_healthy);
     }
 
     #[test]
@@ -9788,12 +11157,13 @@ mod tests {
         let profile_json = r#"{
             "dailyLedgers": {
                 "bad": {"note": "skip"},
-                "2026-04-01": {"note": "one"},
+                "2026-04-01": {"note": "one", "confirmedAtEpochMillis": 1},
                 "2026-04-10": {"note": "two"}
             },
             "monthlySnapshots": {
                 "2026-02": {"assets": [{"name": "Cash", "kind": "CASH_RESERVE", "amount": 1000}]},
-                "2026-04": {"assets": [{"name": "Cash", "kind": "CASH_RESERVE", "amount": 1500}]}
+                "2026-04": {"assets": [{"name": "Cash", "kind": "CASH_RESERVE", "amount": 1500}]},
+                "2026-11": {"assets": [{"name": "Cash", "kind": "CASH_RESERVE", "amount": 1700}]}
             }
         }"#;
 
@@ -9810,8 +11180,12 @@ mod tests {
             finance_profile::latest_snapshot_month_key_up_to(profile_json, "2026-03").as_deref()
         );
         assert_eq!(
-            Some([1000, 1500]),
-            finance_profile::year_net_worth_summary_values(profile_json, 2026)
+            Some([1000, 1500, 202602, 202604, 0]),
+            finance_profile::year_net_worth_summary_values(profile_json, 2026, 7)
+        );
+        assert_eq!(
+            Some([1000, 1700, 202602, 202611, 0]),
+            finance_profile::year_net_worth_summary_values(profile_json, 2026, 12)
         );
     }
 
@@ -9845,7 +11219,7 @@ mod tests {
             .expect("raw profile should decode");
 
         assert!(payload_profile.contains("\"activeIncomeMonthly\":1000"));
-        assert!(payload_profile.contains("\"assetIncomeMonthly\":0"));
+        assert!(payload_profile.contains("\"assetIncomeMonthly\":-5"));
         assert!(raw_profile.contains("\"activeIncomeMonthly\":1200"));
         assert!(finance_profile::decode_finance_backup_profile_json(
             r#"{"schemaVersion": 99, "financeProfile": {}}"#
@@ -9869,11 +11243,13 @@ mod tests {
             .as_array()
             .expect("settings should contain categories");
 
-        assert_eq!(6, categories.len());
-        assert_eq!("DEBT", categories[0]["bucket"]);
-        assert_eq!("FOOD", categories[1]["bucket"]);
-        assert_eq!("DiningBudget", categories[1]["label"]);
-        assert_eq!(1.0, categories[1]["targetShareOfIncome"]);
+        assert_eq!(2, categories.len());
+        assert_eq!("FOOD", categories[0]["bucket"]);
+        assert_eq!("  DiningBudgetLongName  ", categories[0]["label"]);
+        assert_eq!(1.0, categories[0]["targetShareOfIncome"]);
+        assert_eq!("OTHER", categories[1]["bucket"]);
+        assert_eq!("Ignored misc", categories[1]["label"]);
+        assert!(categories[1]["targetShareOfIncome"].is_null());
 
         let config = finance_profile::sanitize_finance_expense_category_config_json(
             r#"{"bucket":"OTHER","label":"  DebtCustomName  ","targetShareOfIncome":-0.2}"#,
@@ -9883,7 +11259,7 @@ mod tests {
         let config_value: serde_json::Value =
             serde_json::from_str(&config).expect("config json should be valid");
         assert_eq!("DEBT", config_value["bucket"]);
-        assert_eq!("DebtCustomNa", config_value["label"]);
+        assert_eq!("  DebtCustomName  ", config_value["label"]);
         assert_eq!(0.0, config_value["targetShareOfIncome"]);
 
         let default_config =
@@ -9902,6 +11278,9 @@ mod tests {
         assert_eq!(216_000, finance_scale_long(3, 18_000, 0));
         assert!((finance_scale_float(0, 4.0, 0) - 120.0).abs() < 0.0001);
         assert!((finance_scale_float(2, 0.05, 1) - 0.15).abs() < 0.0001);
+        assert!((finance_scale_float(1, 6.0, 1) - 6.0).abs() < 0.0001);
+        assert!((finance_scale_float(2, 2.0, 1) - 6.0).abs() < 0.0001);
+        assert!((finance_scale_float(3, 0.5, 1) - 6.0).abs() < 0.0001);
         assert!(finance_scale_float(1, f32::NAN, 0).is_nan());
 
         let income_share =
@@ -9947,7 +11326,7 @@ mod tests {
             &[0.30, 0.20, 0.50, f32::NAN, 0.10],
         );
 
-        assert_eq!("Debt 30% / Food 20%", summary);
+        assert_eq!("Debt ≤30% / Food ≤20% / Other ≈50%", summary);
     }
 
     #[test]
@@ -9961,7 +11340,7 @@ mod tests {
             normalize_repository_text("  Project\t\tAlpha  ", 32, false, true)
         );
         assert_eq!(
-            "Project",
+            "Project Alpha",
             normalize_repository_text("  Project Alpha  ", 7, false, true)
         );
 
@@ -10025,8 +11404,8 @@ mod tests {
             3,
         );
 
-        assert_eq!(vec![-1, 4, 0], plan);
-        assert_eq!(vec![3, 1, 4], no_capture);
+        assert_eq!(vec![-1, 2, 4], plan);
+        assert_eq!(vec![2, 3, 1, 4], no_capture);
     }
 
     #[test]
@@ -10064,6 +11443,47 @@ mod tests {
             resolution.transitions[1].transition_type
         );
         assert_eq!(8 + 3 + 4, values.len());
+        assert!(resolution.complete);
+    }
+
+    #[test]
+    fn micro_break_reducer_returns_a_bounded_continuation_page() {
+        let resolution = resolve_micro_break(
+            1_000_000 + 500_000_000,
+            1,
+            0,
+            1_000_000,
+            MICRO_BREAK_PHASE_FOCUS,
+            0,
+            0,
+            1_000_000,
+        )
+        .expect("valid long-running micro break resolution");
+        let values = micro_break_resolution_values(&resolution);
+
+        assert!(!resolution.complete);
+        assert_eq!(
+            MICRO_BREAK_RESOLUTION_MAX_TRANSITIONS,
+            resolution.transitions.len()
+        );
+        assert!(resolution.sessions.len() <= MICRO_BREAK_RESOLUTION_MAX_SESSIONS);
+        assert!(resolution.running_since_epoch_millis < 1_000_000 + 500_000_000);
+        assert_eq!(resolution.sessions.len() as i64, values[6]);
+        assert_eq!(resolution.transitions.len() as i64, values[7]);
+
+        let continued = resolve_micro_break(
+            1_000_000 + 500_000_000,
+            1,
+            resolution.accumulated_millis,
+            resolution.running_since_epoch_millis,
+            resolution.phase,
+            resolution.cycle_index,
+            resolution.phase_progress_millis,
+            resolution.updated_at,
+        )
+        .expect("continuation page remains valid");
+        assert!(continued.running_since_epoch_millis > resolution.running_since_epoch_millis);
+        assert!(!continued.transitions.is_empty());
     }
 
     #[test]
@@ -10118,10 +11538,14 @@ mod tests {
         assert_eq!("现金流为正", finance_structure_headline(200, 100, 100));
         assert_eq!("继续收口", finance_structure_headline(100, 200, -100));
         assert_eq!("2026-04-21", sanitize_finance_draft("20xx26-04-21zzz", 10));
+        assert_eq!(-1, parse_finance_amount_draft("12x34", 9, 999_999_999));
+        assert_eq!(-1, parse_finance_amount_draft("2000020000", 9, 999_999_999));
+        assert_eq!(-1, parse_finance_amount_draft("999999999", 9, 99_999_999));
         assert_eq!(
-            129_999_999,
-            parse_finance_amount_draft("12x9999999999", 9, 999_999_999)
+            999_999_999,
+            parse_finance_amount_draft("999999999", 9, 999_999_999)
         );
+        assert_eq!(0, parse_finance_amount_draft("", 9, 999_999_999));
         assert_eq!(Some(1.0), parse_finance_target_share("128"));
         assert_eq!("¥1,234,567", format_finance_currency(1_234_567));
         assert_eq!("-¥42", format_finance_signed_currency(-42));
@@ -10168,19 +11592,19 @@ mod tests {
         assert_eq!("13%", format_rounded_percent(0.125));
         assert_eq!("+12.5%", format_signed_percent(0.125));
         assert_eq!("-12.5%", format_signed_percent(-0.125));
-        assert_eq!("已覆盖", format_defensive_coverage(f32::NAN, "个月"));
+        assert_eq!("无法判断", format_defensive_coverage(f32::NAN, "个月"));
         assert_eq!("0.0 个月", format_defensive_coverage(0.0, "个月"));
         assert_eq!("99+ 个月", format_defensive_coverage(120.0, "个月"));
         assert_eq!("2.5 个月", format_defensive_coverage(2.5, "个月"));
-        assert_eq!("现金储备还能顶多少天", finance_coverage_caption(0));
-        assert_eq!("现金储备还能顶多少个季度", finance_coverage_caption(2));
+        assert_eq!("按月度净流出速度折算", finance_coverage_caption(0));
+        assert_eq!("按月度净流出速度折算", finance_coverage_caption(2));
     }
 
     #[test]
     fn asset_liability_ratio_formatter_matches_finance_detail_caption() {
         assert_eq!("2.50", format_asset_liability_ratio(10_000, 4_000));
         assert_eq!("\u{221e}", format_asset_liability_ratio(10_000, 0));
-        assert_eq!("0.00", format_asset_liability_ratio(0, 0));
+        assert_eq!("--", format_asset_liability_ratio(0, 0));
     }
 
     #[test]
@@ -10228,9 +11652,11 @@ mod tests {
                 "PLAN".to_string(),
             ])
         );
-        assert!(has_finance_row_draft_content(" ", 1, None));
-        assert!(has_finance_row_draft_content(" ", 0, Some(" note ")));
-        assert!(!has_finance_row_draft_content(" ", 0, Some(" ")));
+        assert!(has_finance_row_draft_content("工资", 1, None));
+        assert!(!has_finance_row_draft_content("工资", 0, None));
+        assert!(!has_finance_row_draft_content("工资", 0, Some("备注")));
+        assert!(!has_finance_row_draft_content(" ", 1, None));
+        assert!(!has_finance_row_draft_content(" ", 0, Some("备注")));
     }
 
     #[test]

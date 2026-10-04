@@ -1,0 +1,5 @@
+# Copy to release_signing.properties and fill values only on your workstation.
+storeFile=keystore/your-release-keystore.jks
+storePassword=REPLACE_LOCALLY
+keyAlias=release
+keyPassword=REPLACE_LOCALLY

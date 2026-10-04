@@ -1,3 +1,4 @@
+// v2.22.49 - Compile the public transaction-scoped SQLite streaming API.
 use gridtimer_native::tooling::{
     cargo_toolchain_exe, load_signing_properties, project_root, read_project_version_info,
     resolve_android_sdk_dir, resolve_latest_ndk_directory, resolve_xiaomi_app_id,
@@ -40,12 +41,12 @@ fn run() -> io::Result<()> {
     let payload = json!({
         "namespace": "com.ofairyo.gridtimer",
         "applicationId": "com.ofairyo.gridtimer",
-        "compileSdk": 34,
+        "compileSdk": 35,
         "minSdk": 26,
         "targetSdk": 34,
         "versionCode": version.version_code,
         "versionName": version.version_name,
-        "debugAppName": "Grid Timer",
+        "debugAppName": "十倍率",
         "composeCompilerExtensionVersion": "1.5.14",
         "composeBomVersion": "2024.06.00",
         "implementationDeps": [

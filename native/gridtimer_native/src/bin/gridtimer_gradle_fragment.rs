@@ -32,6 +32,7 @@ repositories { google(); mavenCentral() }
 def r = rootProject.file('native/gridtimer_native')
 def j = layout.buildDirectory.dir('rustJniLibs')
 def g = layout.buildDirectory.dir('generated/source/rustAndroid/main')
+def ga = layout.buildDirectory.dir('generated/source/rustAndroid/androidTest')
 def br = file(System.getenv('GRIDTIMER_BUILD_ROOT') ?: 'C:\\gt\\gridtimer-build')
 def t = new File(br, 'rustTarget')
 def s = new File(br, 'rustSourcegenTarget')
@@ -126,19 +127,29 @@ android {
         java.srcDir x
         jniLibs.srcDir j
     }
+    sourceSets.androidTest {
+        java.srcDir ga
+    }
     composeOptions { kotlinCompilerExtensionVersion b.composeCompilerExtensionVersion }
-    packaging { resources { excludes += '/META-INF/{AL2.0,LGPL2.1}' } }
+    packaging {
+        jniLibs { useLegacyPackaging true }
+        resources { excludes += '/META-INF/{AL2.0,LGPL2.1}' }
+    }
 }
 
 def src = tasks.register('generateAndroidSourcesFromRust') {
     inputs.dir r
     outputs.dir g
+    outputs.dir ga
     doLast {
         f(g.get().asFile) { o ->
             verifyRustInputs()
             def u = s
+            def ao = ga.get().asFile
+            if (ao.exists()) ao.deleteDir()
+            ao.mkdirs()
             u.mkdirs()
-            c([cargo, 'run', '-q', '--bin', 'gridtimer_sourcegen', '--', o.absolutePath], r, [CARGO_TARGET_DIR: u.absolutePath, CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: linker, LIB: lib])
+            c([cargo, 'run', '-q', '--bin', 'gridtimer_sourcegen', '--', o.absolutePath, ao.absolutePath], r, [CARGO_TARGET_DIR: u.absolutePath, CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: linker, LIB: lib])
         }
     }
 }

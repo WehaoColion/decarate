@@ -1,3 +1,4 @@
+// v2.22.39 - Keep timer guidance factual and remove repeated advice.
 use crate::app_data::sanitize_app_data_json;
 
 const MICRO_BREAK_FOCUS_MIN_MILLIS: i64 = 3 * 60 * 1_000;
@@ -204,18 +205,14 @@ pub fn home_rhythm_narrative(
     if active_count > 0 && !focus_slot_title.trim().is_empty() {
         let settled_text = if today_session_count > 0 {
             format!(
-                "今天已经完成了 {} 次记录，总计{}。",
+                "今天完成 {} 次记录，累计{}。",
                 today_session_count,
                 format_compact_duration_label(today_total)
             )
         } else {
             "今天还没有完成记录。".to_string()
         };
-        return format!(
-            "{} 眼下最合适的下一步，是继续 {}。沿着同一条线往前走，节奏最不容易断。",
-            settled_text,
-            focus_slot_title.trim()
-        );
+        return format!("{} 正在计时：{}。", settled_text, focus_slot_title.trim());
     }
 
     if !busiest_slot_title.trim().is_empty() && busiest_duration > 0 {
@@ -234,7 +231,7 @@ pub fn home_rhythm_narrative(
 
     if peak_duration >= 0 {
         return format!(
-            "到目前为止，最长的一次专注持续了{}，说明节奏已经慢慢热起来了。",
+            "最长单次专注{}。",
             format_compact_duration_label(peak_duration)
         );
     }
@@ -249,11 +246,10 @@ pub fn home_rhythm_narrative(
     }
 
     if focus_kind_code == HOME_FOCUS_KIND_START_FRESH {
-        return "今天还没有历史记录。先选一个干净的格子开始，等节奏起来后再补名字或分类。"
-            .to_string();
+        return "今天还没有记录。".to_string();
     }
 
-    "看板已经准备好了。打开建议格子，把下一段工作重新接上。".to_string()
+    "暂无运行中的格子。".to_string()
 }
 
 pub fn home_focus_guidance(
@@ -266,37 +262,25 @@ pub fn home_focus_guidance(
     let slot_id_label = slot_label(slot_id);
     match focus_kind_code {
         HOME_FOCUS_KIND_RUNNING => format!(
-            "格子 {} 已经连续计时{}，继续保持这个节奏就好。",
+            "格子 {} 已累计{}。",
             slot_id_label,
             format_compact_duration_label(elapsed_millis)
         ),
         HOME_FOCUS_KIND_RESUME if elapsed_millis > 0 => format!(
-            "格子 {} 已经累计了{}，直接接着做，比重开更顺。",
+            "格子 {} 已累计{}。",
             slot_id_label,
             format_compact_duration_label(elapsed_millis)
         ),
         HOME_FOCUS_KIND_RESUME if has_title => {
-            format!(
-                "格子 {} 已经有标题了，随时可以从上次停下的地方继续。",
-                slot_id_label
-            )
+            format!("格子 {} 已有标题。", slot_id_label)
         }
         HOME_FOCUS_KIND_RESUME if has_note => {
-            format!(
-                "格子 {} 里还留着备注，重新打开它，让备注带你进入下一步。",
-                slot_id_label
-            )
+            format!("格子 {} 已有备注。", slot_id_label)
         }
         HOME_FOCUS_KIND_RESUME => {
-            format!(
-                "格子 {} 正在等你，重新打开它，沿着原来的线继续。",
-                slot_id_label
-            )
+            format!("格子 {} 待继续。", slot_id_label)
         }
-        _ => format!(
-            "就从格子 {} 开始。先动起来，过几分钟再补标题或分类也不迟。",
-            slot_id_label
-        ),
+        _ => format!("格子 {} 待开始。", slot_id_label),
     }
 }
 
@@ -359,7 +343,7 @@ pub fn timer_slot_status_label(
         return format!("\u{4ece} {label} \u{5f00}\u{59cb}\u{8ba1}\u{65f6}");
     }
     if is_blank_slate {
-        return "\u{7a7a}\u{767d}\u{683c}\u{5b50}\u{ff0c}\u{70b9}\u{4e00}\u{4e0b}\u{5c31}\u{80fd}\u{5f00}\u{59cb}\u{65b0}\u{7684}\u{4e13}\u{6ce8}\u{65f6}\u{6bb5}\u{3002}".to_string();
+        return String::new();
     }
     if today_duration > 0 {
         return format!(
@@ -373,31 +357,21 @@ pub fn timer_slot_status_label(
             latest_finish_label.trim()
         );
     }
-    "\u{8fd9}\u{4e2a}\u{683c}\u{5b50}\u{968f}\u{65f6}\u{53ef}\u{4ee5}\u{7ee7}\u{7eed}\u{3002}"
-        .to_string()
+    String::new()
 }
 
 pub fn timer_slot_footer_label(
     note: &str,
-    is_running: bool,
-    is_on_break: bool,
-    can_archive: bool,
+    _is_running: bool,
+    _is_on_break: bool,
+    _can_archive: bool,
     session_count: i32,
     today_duration: i64,
-    is_blank_slate: bool,
+    _is_blank_slate: bool,
 ) -> String {
     let note = note.trim();
     if !note.is_empty() {
         return note.to_string();
-    }
-    if is_running && is_on_break {
-        return "\u{8fd9}\u{4e00}\u{8f6e}\u{6b63}\u{5728}\u{4f11}\u{606f} 15 \u{79d2}\u{ff0c}\u{7ed3}\u{675f}\u{94c3}\u{58f0}\u{54cd}\u{8d77}\u{540e}\u{4f1a}\u{81ea}\u{52a8}\u{56de}\u{5230}\u{4e13}\u{6ce8}\u{3002}".to_string();
-    }
-    if is_running {
-        return "\u{8fd9}\u{4e2a}\u{683c}\u{5b50}\u{4f1a}\u{6309}\u{6bcf}\u{8f6e}\u{4e13}\u{6ce8} 3 \u{5230} 5 \u{5206}\u{949f}\u{3001}\u{4f11}\u{606f} 15 \u{79d2}\u{7684}\u{8282}\u{594f}\u{7ee7}\u{7eed}\u{ff0c}\u{5e76}\u{5728}\u{5207}\u{6362}\u{65f6}\u{7528}\u{4e0d}\u{540c}\u{94c3}\u{58f0}\u{63d0}\u{9192}\u{3002}".to_string();
-    }
-    if can_archive {
-        return "\u{8fd9}\u{91cc}\u{53ef}\u{4ee5}\u{5f52}\u{6863}\u{5df2}\u{5b8c}\u{6210}\u{7684}\u{4efb}\u{52a1}\u{ff0c}\u{817e}\u{51fa}\u{7a7a}\u{95f4}\u{53c8}\u{4e0d}\u{4f1a}\u{4e22}\u{8bb0}\u{5f55}\u{3002}".to_string();
     }
     if session_count > 0 && today_duration > 0 {
         return format!(
@@ -412,10 +386,7 @@ pub fn timer_slot_footer_label(
             session_count
         );
     }
-    if is_blank_slate {
-        return "\u{8865}\u{4e00}\u{4e2a}\u{6807}\u{9898}\u{3001}\u{5206}\u{7c7b}\u{6216}\u{5907}\u{6ce8}\u{ff0c}\u{8fd9}\u{4e2a}\u{683c}\u{5b50}\u{5c31}\u{4f1a}\u{7acb}\u{523b}\u{66f4}\u{6709}\u{72b6}\u{6001}\u{3002}".to_string();
-    }
-    "\u{7559}\u{4e00}\u{53e5}\u{5907}\u{6ce8}\u{ff0c}\u{56de}\u{6765}\u{65f6}\u{5c31}\u{80fd}\u{7acb}\u{523b}\u{77e5}\u{9053}\u{4e0b}\u{4e00}\u{6b65}\u{505a}\u{4ec0}\u{4e48}\u{3002}".to_string()
+    String::new()
 }
 
 pub fn timer_detail_status_line(
@@ -426,17 +397,17 @@ pub fn timer_detail_status_line(
 ) -> String {
     if is_running && is_on_break {
         return format!(
-            "\u{6b63}\u{5728}\u{5fae}\u{4f11}\u{606f}\u{ff0c}\u{8fd8}\u{5269} {}\u{ff0c}\u{7ed3}\u{675f}\u{540e}\u{4f1a}\u{81ea}\u{52a8}\u{56de}\u{5230}\u{4e13}\u{6ce8}\u{3002}",
+            "微休息剩余 {}，结束后自动继续。",
             format_countdown_duration(phase_remaining_millis)
         );
     }
     if is_running {
-        return "\u{6b63}\u{5728}\u{8ba1}\u{65f6}\u{3002}\u{53ea}\u{8981}\u{4e0d}\u{6682}\u{505c}\u{ff0c}\u{8fd9}\u{4e2a}\u{683c}\u{5b50}\u{5c31}\u{4f1a}\u{6301}\u{7eed}\u{7d2f}\u{8ba1}\u{65f6}\u{95f4}\u{3002}".to_string();
+        return "正在计时。".to_string();
     }
     if can_archive {
-        return "\u{8fd9}\u{9879}\u{5de5}\u{4f5c}\u{5df2}\u{7ecf}\u{5b8c}\u{6210}\u{3002}\u{60f3}\u{8ba9}\u{770b}\u{677f}\u{66f4}\u{6e05}\u{723d}\u{65f6}\u{ff0c}\u{53ef}\u{4ee5}\u{628a}\u{5b83}\u{5f52}\u{6863}\u{3002}".to_string();
+        return "未在计时，可继续或归档。".to_string();
     }
-    "\u{8fd9}\u{4e2a}\u{683c}\u{5b50}\u{5df2}\u{7ecf}\u{51c6}\u{5907}\u{597d}\u{ff0c}\u{60f3}\u{7ee7}\u{7eed}\u{65f6}\u{968f}\u{65f6}\u{56de}\u{6765}\u{3002}".to_string()
+    "待开始计时。".to_string()
 }
 
 pub fn timer_detail_summary_note(
@@ -572,14 +543,14 @@ pub fn finance_data_status_message(status_kind_code: i32, file_name: &str) -> St
         file_name.trim()
     };
     match status_kind_code {
-        0 => "\u{5df2}\u{53d6}\u{6d88}\u{6062}\u{590d}\u{ff0c}\u{5f53}\u{524d}\u{8d22}\u{52a1}\u{6570}\u{636e}\u{672a}\u{6539}\u{52a8}\u{3002}".to_string(),
-        1 => "\u{6b63}\u{5728}\u{8bfb}\u{53d6}\u{8d22}\u{52a1}\u{5907}\u{4efd}...".to_string(),
-        2 => "\u{8d22}\u{52a1}\u{6570}\u{636e}\u{5df2}\u{6062}\u{590d}\u{ff0c}\u{53ea}\u{8986}\u{76d6}\u{8d22}\u{52a1}\u{677f}\u{5757}\u{3002}".to_string(),
-        3 => "\u{6062}\u{590d}\u{5931}\u{8d25}\u{ff0c}\u{8bf7}\u{786e}\u{8ba4}\u{9009}\u{62e9}\u{7684}\u{662f}\u{8d22}\u{52a1}\u{5907}\u{4efd}\u{6587}\u{4ef6}\u{3002}".to_string(),
-        4 => "\u{6b63}\u{5728}\u{751f}\u{6210}\u{8d22}\u{52a1}\u{5907}\u{4efd}\u{ff0c}\u{5b8c}\u{6210}\u{540e}\u{4f1a}\u{81ea}\u{52a8}\u{6253}\u{5f00}\u{7cfb}\u{7edf}\u{5206}\u{4eab}\u{9762}\u{677f}\u{3002}".to_string(),
+        0 => "已取消恢复，当前风控数据未改动。".to_string(),
+        1 => "正在读取风控备份...".to_string(),
+        2 => "风控数据已安全合并，只影响风控板块。".to_string(),
+        3 => "恢复失败，请确认选择的是风控备份文件。".to_string(),
+        4 => "正在生成风控备份，完成后会自动打开系统分享面板。".to_string(),
         5 => format!("\u{5df2}\u{521b}\u{5efa} {safe_file_name}\u{ff0c}\u{7cfb}\u{7edf}\u{5206}\u{4eab}\u{9762}\u{677f}\u{5df2}\u{7ecf}\u{6253}\u{5f00}\u{3002}"),
         6 => format!("\u{5df2}\u{521b}\u{5efa} {safe_file_name}\u{ff0c}\u{4f46}\u{6253}\u{5f00}\u{5206}\u{4eab}\u{9762}\u{677f}\u{5931}\u{8d25}\u{ff0c}\u{8bf7}\u{91cd}\u{8bd5}\u{3002}"),
-        7 => "\u{5bfc}\u{51fa}\u{8d22}\u{52a1}\u{5907}\u{4efd}\u{5931}\u{8d25}\u{ff0c}\u{8bf7}\u{91cd}\u{8bd5}\u{3002}".to_string(),
+        7 => "导出风控备份失败，请重试。".to_string(),
         _ => String::new(),
     }
 }
@@ -588,7 +559,7 @@ pub fn finance_data_action_label(is_exporting: bool) -> String {
     if is_exporting {
         "\u{5bfc}\u{51fa}\u{4e2d}...".to_string()
     } else {
-        "\u{5bfc}\u{51fa}\u{8d22}\u{52a1}".to_string()
+        "导出风控".to_string()
     }
 }
 
@@ -601,7 +572,7 @@ pub fn finance_backup_file_name(version_name: &str, timestamp_label: &str) -> St
 pub fn finance_data_idle_status_message(version_name: &str) -> String {
     let version = trimmed_or(version_name, "unknown");
     format!(
-        "\u{5efa}\u{8bae}\u{6bcf}\u{6b21}\u{505a}\u{5927}\u{6539}\u{524d}\u{5148}\u{5bfc}\u{51fa}\u{4e00}\u{4efd}\u{8d22}\u{52a1}\u{5907}\u{4efd}\u{3002}\u{6587}\u{4ef6}\u{4f1a}\u{5e26}\u{4e0a}\u{5f53}\u{524d}\u{7248}\u{672c}\u{53f7} {version}\u{3002}"
+        "建议每次做大改前先导出一份风控备份。文件是明文 JSON，分享后不再受本机应用保护；当前版本 {version}。"
     )
 }
 
@@ -864,6 +835,27 @@ mod tests {
     }
 
     #[test]
+    fn timer_tile_copy_keeps_notes_and_facts_without_filler() {
+        assert_eq!(
+            "下一步检查接口",
+            timer_slot_footer_label(" 下一步检查接口 ", false, false, true, 2, 30_000, false)
+        );
+        assert!(timer_slot_footer_label("", false, false, true, 2, 30_000, false).contains("2 次"));
+        assert_eq!(
+            "",
+            timer_slot_footer_label("", true, true, false, 0, 0, false)
+        );
+        assert_eq!(
+            "",
+            timer_slot_status_label(false, false, 0, "", true, 0, "")
+        );
+        assert_eq!(
+            "",
+            timer_slot_status_label(false, false, 0, "", false, 0, "")
+        );
+    }
+
+    #[test]
     fn diagnostic_status_texts_cover_recording_export_and_share_states() {
         assert_eq!("导出中...", diagnostic_log_button_label(true, false));
         assert_eq!("导出日志", diagnostic_log_button_label(false, true));
@@ -919,10 +911,7 @@ mod tests {
             "\u{5bfc}\u{51fa}\u{4e2d}...",
             finance_data_action_label(true)
         );
-        assert_eq!(
-            "\u{5bfc}\u{51fa}\u{8d22}\u{52a1}",
-            finance_data_action_label(false)
-        );
+        assert_eq!("导出风控", finance_data_action_label(false));
         assert!(finance_data_status_message(5, "finance.json").contains("finance.json"));
         assert!(finance_data_status_message(6, "finance.json").contains("finance.json"));
         assert_eq!(
@@ -1033,11 +1022,11 @@ mod tests {
     #[test]
     fn home_guidance_preserves_resume_branches() {
         assert_eq!(
-            "格子 03 已经累计了5分，直接接着做，比重开更顺。",
+            "格子 03 已累计5分。",
             home_focus_guidance(HOME_FOCUS_KIND_RESUME, 3, 5 * 60_000, true, true)
         );
         assert_eq!(
-            "格子 03 里还留着备注，重新打开它，让备注带你进入下一步。",
+            "格子 03 已有备注。",
             home_focus_guidance(HOME_FOCUS_KIND_RESUME, 3, 0, false, true)
         );
     }
@@ -1045,7 +1034,7 @@ mod tests {
     #[test]
     fn rhythm_narrative_prefers_running_focus() {
         assert_eq!(
-            "今天已经完成了 2 次记录，总计1小时 5分。 眼下最合适的下一步，是继续 写论文。沿着同一条线往前走，节奏最不容易断。",
+            "今天完成 2 次记录，累计1小时 5分。 正在计时：写论文。",
             home_rhythm_narrative(
                 1,
                 2,

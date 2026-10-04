@@ -1,0 +1,10 @@
+<!-- v1.0.2 - Reduce the Windows desktop icon to a three-color timer mark tuned for small sizes. -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="224" fill="#F6F1E8"/>
+  <rect x="448" y="96" width="128" height="160" rx="40" fill="#D84A3F"/>
+  <circle cx="512" cy="544" r="336" fill="#D84A3F"/>
+  <circle cx="512" cy="544" r="240" fill="#F6F1E8"/>
+  <path d="M512 544V368" stroke="#292725" stroke-width="64" stroke-linecap="round"/>
+  <path d="M512 544L648 632" stroke="#292725" stroke-width="64" stroke-linecap="round"/>
+  <circle cx="512" cy="544" r="40" fill="#292725"/>
+</svg>
