@@ -28,6 +28,8 @@ mod android_canvas_ui;
 mod android_device_timer_sync;
 #[path = "../sourcegen/android_document_caret.rs"]
 mod android_document_caret;
+#[path = "../sourcegen/android_document_markdown.rs"]
+mod android_document_markdown;
 #[path = "../sourcegen/android_finance_workspace.rs"]
 mod android_finance_workspace;
 #[path = "../sourcegen/android_history_storage.rs"]
@@ -137,6 +139,11 @@ fn run() -> io::Result<()> {
     fs::create_dir_all(&output_root)?;
 
     if let Some(unit_test_output_root) = unit_test_output_root {
+        write_source(
+            &unit_test_output_root,
+            android_document_markdown::TEST_PATH,
+            android_document_markdown::TEST_CONTENTS,
+        )?;
         write_source(
             &unit_test_output_root,
             android_finance_workspace::TEST_PATH,
@@ -555,6 +562,8 @@ fn write_source(output_root: &Path, relative_path: &str, contents: &str) -> io::
     let contents = android_document_caret::render(relative_path, &contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = android_finance_workspace::render(relative_path, &contents)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let contents = android_document_markdown::render(relative_path, &contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = contents
         .replace("十倍率", "tenfold")
