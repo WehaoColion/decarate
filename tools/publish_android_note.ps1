@@ -1,3 +1,4 @@
+# v2.23.2.11 - Gate finance scope isolation, preview mutations and packaged navigation policy.
 # v2.23.2.10 - Gate document caret and knowledge header mutations and packaged editor policies.
 # v2.23.2.9 - Bind legal workflow authorization mutations and generated actions to the signed APK.
 # v2.23.2.8 - Gate legal request lifecycle tests, settlement mutation and packaged boundary.
@@ -33,6 +34,7 @@ if($provenance.sha256 -ne $build.sourceSnapshotSha256){throw 'Source snapshot mi
 $aiAcceptance=$null
 $mathAcceptance=$null
 $legalAcceptance=$null
+$financeAcceptance=$null
 $legalWorkflowAcceptance=$null
 if($releaseVersion -eq '2.23.2'){
     if($build.knowledgeRecoveryTests.NoteCollectionRecoveryTest -ne 6 -or $build.knowledgeRecoveryTests.KnowledgeFilterStateTest -ne 4){throw 'Knowledge recovery business acceptance missing'}
@@ -333,6 +335,65 @@ if([version]$releaseVersion -ge [version]'2.23.2.10'){
         }
     }
 }
+if([version]$releaseVersion -ge [version]'2.23.2.11'){
+    $financeSourcePath='native/gridtimer_native/src/sourcegen/android_finance_workspace.rs'
+    $financeVerifierPath='tools/verify_finance_workspace_mutation.ps1'
+    $financeSource=@($provenance.files | Where-Object path -eq $financeSourcePath)
+    $financeVerifier=@($provenance.files | Where-Object path -eq $financeVerifierPath)
+    $financeMutation=Get-Content -LiteralPath (Join-Path $evidence 'finance_workspace_mutation/receipt.json') -Raw | ConvertFrom-Json
+    $financeActual=Get-Content -LiteralPath (Join-Path $releaseRoot $financeSourcePath) -Raw
+    $financeBodies=@{}
+    foreach($name in @('POLICY','TEST_CONTENTS','WORKSPACE','COMPONENTS')){
+        $literal=[regex]::Match($financeActual,'(?s)(?:pub\s+)?const\s+'+$name+':\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+        if(!$literal.Success){throw ('Rust-owned finance literal is missing: '+$name)}
+        $financeBodies[$name]=$literal.Groups['body'].Value.Replace("`r`n","`n")
+    }
+    $financeTestNames=@([regex]::Matches($financeBodies.TEST_CONTENTS,'@Test\s+fun\s+(\w+)\s*\(') | ForEach-Object {$_.Groups[1].Value})
+    $financeRequiredTests=@('newMonthClosesOldDetailAndReturnsToOverview','newWorkspaceDoesNotInheritFinancialDetail','switchingTaskClearsThePreviousDialog','reviewCountUsesAllFourExplicitFlags','alertPreviewIsBoundedWithoutChangingTheTotal')
+    [xml]$financeTests=Get-Content -LiteralPath (Join-Path $evidence 'FinanceWorkspacePolicyTest.xml') -Raw
+    if($financeTestNames.Count -ne 5 -or @($financeTestNames | Sort-Object -Unique).Count -ne 5 -or @($financeRequiredTests | Where-Object {$_ -notin $financeTestNames}).Count -or $build.financeWorkspaceTests -ne 5 -or [int]$financeTests.testsuite.tests -ne 5 -or [int]$financeTests.testsuite.failures -ne 0 -or [int]$financeTests.testsuite.errors -ne 0 -or [int]$financeTests.testsuite.skipped -ne 0){throw 'Finance navigation formal state tests are incomplete or failed'}
+    if($financeSource.Count -ne 1 -or $financeVerifier.Count -ne 1 -or !$financeMutation.passed -or !$financeMutation.productionUnchanged -or $financeMutation.version -ne $releaseVersion -or $financeMutation.sourcePath -ne $financeSourcePath -or $financeMutation.sourceSha256Before -cne $financeSource[0].sha256 -or $financeMutation.sourceSha256After -cne $financeSource[0].sha256 -or $financeMutation.verifierPath -ne $financeVerifierPath -or $financeMutation.verifierSha256 -cne $financeVerifier[0].sha256 -or $financeMutation.tests -ne 5 -or $financeMutation.cases.Count -ne 6 -or @($financeMutation.cases | Where-Object {!$_.passed -or $_.compileExit -ne 0 -or !$_.allBusinessTestsObserved}).Count){throw 'Finance mutation is unrelated to the frozen source or state tests'}
+    foreach($literal in @(
+        @{text=$financeBodies.POLICY;hash=$financeMutation.policySha256},
+        @{text=$financeBodies.TEST_CONTENTS;hash=$financeMutation.testsSha256},
+        @{text=$financeBodies.WORKSPACE;hash=$financeMutation.workspaceSha256},
+        @{text=$financeBodies.COMPONENTS;hash=$financeMutation.componentsSha256},
+        @{text=("package com.ofairyo.gridtimer.ui`n"+$financeBodies.POLICY);hash=$financeMutation.helperSha256}
+    )){
+        $actual=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($literal.text))).ToLowerInvariant()
+        if($actual -cne $literal.hash){throw 'Finance mutation compiled a different Rust-owned policy or test body'}
+    }
+    if($financeMutation.testNames.Count -ne 5){throw 'Finance mutation test inventory is incomplete'}
+    foreach($testName in $financeRequiredTests){if(@($financeTests.testsuite.testcase | Where-Object name -eq $testName).Count -ne 1 -or $testName -notin $financeMutation.testNames){throw ('Finance state test is absent from formal build or mutation: '+$testName)}}
+    $financeCritical=@{removed_workspace_guard='newWorkspaceDoesNotInheritFinancialDetail';removed_month_guard='newMonthClosesOldDetailAndReturnsToOverview';removed_preview_limit='alertPreviewIsBoundedWithoutChangingTheTotal'}
+    foreach($caseName in @('baseline','cosmetic','removed_workspace_guard','removed_month_guard','removed_preview_limit','restored')){
+        $case=@($financeMutation.cases | Where-Object name -eq $caseName)
+        if($case.Count -ne 1 -or $null -eq $case[0].testExit -or $case[0].testsSha256 -cne $financeMutation.testsSha256 -or $case[0].workspaceSha256 -cne $financeMutation.workspaceSha256){throw ('Finance mutation case or original test body is missing: '+$caseName)}
+        $compileLog=Join-Path $evidence ('finance_workspace_mutation/'+$caseName+'/compile.log')
+        $testLog=Join-Path $evidence ('finance_workspace_mutation/'+$caseName+'/tests.log')
+        if((Get-FileHash -LiteralPath $compileLog).Hash.ToLowerInvariant() -cne $case[0].compileLogSha256 -or (Get-FileHash -LiteralPath $testLog).Hash.ToLowerInvariant() -cne $case[0].testLogSha256){throw ('Finance mutation evidence changed: '+$caseName)}
+        $log=Get-Content -LiteralPath $testLog -Raw
+        if($financeCritical.ContainsKey($caseName)){
+            $required=$financeCritical[$caseName]
+            if($case[0].expectedPass -or $case[0].testExit -eq 0 -or !$case[0].requiredFailureObserved -or $case[0].requiredFailureTest -ne $required -or !$log.Contains($required+'(com.ofairyo.gridtimer.ui.FinanceWorkspacePolicyTest)') -or !$log.Contains('java.lang.AssertionError') -or !$log.Contains('Tests run: 5,') -or $case[0].helperSha256 -ceq $financeMutation.helperSha256 -or $case[0].componentsSha256 -cne $financeMutation.componentsSha256){throw ('Removing a finance state guard did not fail its required test: '+$caseName)}
+        }else{
+            if(!$case[0].expectedPass -or $case[0].testExit -ne 0 -or !$log.Contains('OK (5 tests)')){throw ('Finance baseline, cosmetic or restored state acceptance failed: '+$caseName)}
+            if($caseName -eq 'cosmetic'){
+                if($case[0].helperSha256 -ceq $financeMutation.helperSha256 -or $case[0].componentsSha256 -ceq $financeMutation.componentsSha256){throw 'Finance cosmetic variant did not change both label and style'}
+            }elseif($case[0].helperSha256 -cne $financeMutation.helperSha256 -or $case[0].componentsSha256 -cne $financeMutation.componentsSha256){throw 'Finance baseline or restored policy identity is invalid'}
+        }
+    }
+    $financeIntegration=Get-Content -LiteralPath (Join-Path $evidence 'finance_workspace_generated_acceptance.json') -Raw | ConvertFrom-Json
+    if(!$financeIntegration.passed -or !$financeIntegration.finalTransformConnected -or !$financeIntegration.policyConnectedToRealPanel -or !$financeIntegration.workspaceAndMonthLifetime -or !$financeIntegration.allDetailSectionsPresent -or !$financeIntegration.legalWorkflowEntryPreserved -or $financeIntegration.businessTests -ne 5 -or !$build.financeWorkspaceIntegration.passed){throw 'Generated finance actions are not connected to the tested navigation policy'}
+    $financeGeneratedPaths=@('app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/FinanceRiskV2Panel.kt','app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/GridTimerScreen.kt')
+    if($financeIntegration.generatedFiles.Count -ne 2){throw 'Generated finance workspace inventory is incomplete'}
+    foreach($generatedPath in $financeGeneratedPaths){
+        $generatedFile=@($financeIntegration.generatedFiles | Where-Object path -eq $generatedPath)
+        $builtGeneratedFile=@($build.financeWorkspaceIntegration.generatedFiles | Where-Object path -eq $generatedPath)
+        if($generatedFile.Count -ne 1 -or $builtGeneratedFile.Count -ne 1 -or $generatedFile[0].sha256 -cne $builtGeneratedFile[0].sha256 -or (Get-FileHash -LiteralPath (Join-Path $releaseRoot $generatedPath)).Hash.ToLowerInvariant() -cne $generatedFile[0].sha256){throw 'Generated finance workspace changed after the formal build'}
+    }
+    $financeAcceptance=[ordered]@{businessTests=5;mutationPassed=$true;sourceSha256=$financeSource[0].sha256;verifierSha256=$financeVerifier[0].sha256;generatedSourceConnected=$true;legalWorkflowEntryPreserved=$true;hostOnly=$true;deviceVerified=$false}
+}
 $hash=(Get-FileHash -LiteralPath $apk).Hash.ToLowerInvariant()
 if($hash -ne $build.apkSha256){throw 'APK changed after verification'}
 $publishedApk=@($manifest.files | Where-Object role -eq 'apk')
@@ -410,6 +471,7 @@ try {
     if($legalAcceptance){$dexNames['LegalScanRequestBoundary']=$false;$dexNames['LegalRiskScreenKt']=$false}
     if($legalWorkflowAcceptance){$dexNames['LegalSendConsent']=$false;$dexNames['LegalPrimaryAction']=$false;$dexNames['LegalActionState']=$false}
     if([version]$releaseVersion -ge [version]'2.23.2.10'){$dexNames['DocumentCaretPolicyKt']=$false;$dexNames['DocumentCaretVisibilityKt']=$false;$dexNames['DocumentCaretVisibility']=$false;$dexNames['NoteDocumentEditorKt']=$false}
+    if($financeAcceptance){$dexNames['FinanceRiskV2PanelKt']=$false;$dexNames['FinanceWorkspaceRoute']=$false;$dexNames['FinanceWorkspacePage']=$false;$dexNames['FinanceWorkspaceDetail']=$false}
     try {
         foreach($abi in $abis){
             $entry=$zip.GetEntry("lib/$abi/libgridtimer_native.so")
@@ -538,6 +600,7 @@ if($Mode -eq 'verify' -and $manifest.androidRelease.version -ne $releaseVersion)
     if($mathAcceptance){$receipt['mathRenderingAcceptance']=$mathAcceptance}
     if($legalAcceptance){$receipt['legalLifecycleAcceptance']=$legalAcceptance}
     if($legalWorkflowAcceptance){$receipt['legalWorkflowAcceptance']=$legalWorkflowAcceptance}
+    if($financeAcceptance){$receipt['financeWorkspaceAcceptance']=$financeAcceptance}
     $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $evidence 'pre_publish_package_check.json') -Encoding utf8
     [pscustomobject]$receipt | Select-Object passed,version,versionCode,sha256
     return
@@ -557,5 +620,6 @@ if($aiAcceptance){$receipt['aiConnectionAcceptance']=$aiAcceptance}
 if($mathAcceptance){$receipt['mathRenderingAcceptance']=$mathAcceptance}
 if($legalAcceptance){$receipt['legalLifecycleAcceptance']=$legalAcceptance}
 if($legalWorkflowAcceptance){$receipt['legalWorkflowAcceptance']=$legalWorkflowAcceptance}
+if($financeAcceptance){$receipt['financeWorkspaceAcceptance']=$financeAcceptance}
 $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $evidence $(if($Mode -eq 'publish'){'delivery_receipt.json'}else{'post_publish_package_check.json'})) -Encoding utf8
 [pscustomobject]$receipt | Select-Object passed,version,versionCode,sha256

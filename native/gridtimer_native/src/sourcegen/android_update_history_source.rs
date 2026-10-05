@@ -1,3 +1,4 @@
+// v2.23.2.11 - Record task-oriented financial risk and original review semantics.
 // v2.23.2.10 - Record compact knowledge header and document caret visibility.
 // v2.23.2.9 - Record visible legal actions and explicit send confirmation.
 // v2.23.2.8 - Record Android legal scan recovery and local verification scope.
@@ -13,7 +14,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.10";
+pub const LATEST_VERSION: &str = "2.23.2.11";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -43,6 +44,31 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.11",
+        updatedAt = "2026-10-05 16:01",
+        summary = "风控按总览、核对、预测分区，长清单移到独立详情页",
+        sections = listOf(
+            AndroidUpdateSection("风控总览", listOf(
+                "总览集中呈现原生风险判断及原因，并分组展示安全可支配、已核对现金、已录净现金流和30天预计余额。缺少资料时仍显示待核对或未记录，不将未知金额补成零；安全可支配不足时明确标为缺口。",
+                "本月核对进度保留直接操作。疑似重复付款在总览最多预览两组，保留完整数量和查看全部记录的入口；异常支出提醒仍显示。总览不会随周期项或重复记录数量不断拉长，也不自动删除账目。"
+            )),
+            AndroidUpdateSection("核对与独立详情", listOf(
+                "核对页提供所选月份核对、已录事实、周期支出和待核查记录四个入口。长内容在独立全屏详情中打开，详情有自己的滚动区域和固定返回入口，关闭后回到原来的风控分区。",
+                "保留原逐项核对、明确确认零、周期项确认与取消确认、保存中状态和失败提示。进入详情、切换页签及关闭页面仅改变展示状态，不自动写入核对记录或更改原账目。",
+                "展示状态绑定当前工作区和月份。换工作区或月份时关闭旧详情并返回总览；从一个分区切到另一个分区也会关闭此前详情。所选历史月份使用对应月份标题，避免把历史核对误认为当前月。"
+            )),
+            AndroidUpdateSection("预测与法律分析入口", listOf(
+                "预测页先展示30天和90天余额及预测是否可用，再按需查看判断依据、必要项预留、保护配置和基线。资料不完整时引导核对，不生成新的财务结论。原财务计算、核对指纹与两位小数金额格式继续使用既有逻辑。",
+                "法律分析卡保留实际开始入口、AI设置和当前配置状态，减少说明占用。仍由你先查看扫描和发送预览，再逐次确认发送；本版不自动扫描、不自动上传，不改变真实AI请求、取消保护或报告格式。月份导航合为一行，保留最近六个月至当前月的边界。"
+            )),
+            AndroidUpdateSection("版本与验收范围", listOf(
+                "本版使用Rust源码及源码生成器更新安卓界面，沿用com.ofairyo.gridtimer包名和原正式签名，版本2.23.2.11，内部版本代码22280。Windows正式版本保持1.1.0.7，不修改其客户端或服务。",
+                "核验工作区与月份隔离、分区切换关闭旧详情、四项明确核对旗标和提醒预览边界。变异验证要求文案或样式变化仍通过，删除关键隔离或预览判断后由相应规格失败。生成器在模板缺失、重复或顺序改变时停止，避免静默遗漏操作。",
+                "本版为正式签名候选APK。电脑构建及策略测试不能代替实际手机操作；覆盖安装、窄屏大字号、长金额、详情返回与保存、实际AI分析和手机同步仍需真机验收。已合并的知识头部和文档光标修复继续保留。旧更新记录与时间不改，本版仍支持点按复制、整版复制和历史入口。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.10",
         updatedAt = "2026-10-05 04:12",

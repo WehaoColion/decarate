@@ -1,3 +1,4 @@
+// v2.23.2.11 Android - Integrate finance workspace without changing Windows identity.
 // v2.23.2.10 Android - Keep formal package identity while integrating document fixes.
 // v1.1.0.7 Windows - Add real AI modes, offline answer math and guarded legal send workflow.
 // v2.23.2.9 Android - Keep legal actions visible and require scoped send consent.
@@ -84,8 +85,8 @@
 
 pub const WINDOWS_APP_VERSION: &str = "1.1.0.7";
 pub const SYNC_SUPERVISOR_MUTEX_NAME: &str = r"Local\GridTimerSyncSupervisor-v1";
-pub const ANDROID_APP_VERSION: &str = "2.23.2.10";
-pub const ANDROID_VERSION_CODE: i32 = 22279;
+pub const ANDROID_APP_VERSION: &str = "2.23.2.11";
+pub const ANDROID_VERSION_CODE: i32 = 22280;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductIdentity {
