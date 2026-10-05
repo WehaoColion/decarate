@@ -1,10 +1,12 @@
-v0.0.1 - 增加分类导航，保留各平台原有验收说明。
+v0.0.2 - 纳入文档预览段落边界验收，保留现有分类导航。
 
 # 项目文档
 
 [全部版本更新说明](releases/README.md)
 
 ## Android 验收与性能记录
+
+- [文档预览段落边界验收](android/document_markdown_paragraphs.md)
 
 - [android_archive_restore_v2.22.35](android/android_archive_restore_v2.22.35.md)
 - [2.22.49.7 - 画布渲染性能优化](android/android_canvas_performance_v2.22.49.7.md)

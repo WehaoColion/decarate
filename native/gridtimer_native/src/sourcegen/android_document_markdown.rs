@@ -14,7 +14,10 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
             "document Markdown paragraph projection: expected one original join, found {count}"
         ));
     }
-    Ok(format!("{}\n{HELPERS}", source.replacen(OLD_JOIN, NEW_JOIN, 1)))
+    Ok(format!(
+        "{}\n{HELPERS}",
+        source.replacen(OLD_JOIN, NEW_JOIN, 1)
+    ))
 }
 
 const OLD_JOIN: &str = r####"    return draftBlocks.joinToString("\n") { block ->
@@ -30,7 +33,11 @@ const HELPERS: &str = r####"
 /** Preview-only projection. Never normalizes or writes the editor's block text. */
 internal fun documentMarkdownFromBlocks(blocks: List<String>): String {
     if (blocks.size < 2) return blocks.firstOrNull().orEmpty()
-    val context = DocumentMarkdownContext()
+    // One bounded syntax pass finds complete math pairs. An unfinished formula
+    // stays literal instead of capturing every later canvas paragraph.
+    val pairing = DocumentMarkdownContext()
+    blocks.forEach(pairing::read)
+    val context = DocumentMarkdownContext(pairing.pairedMathStarts)
     return buildString {
         blocks.forEachIndexed { index, text ->
             if (index > 0) {
@@ -44,15 +51,31 @@ internal fun documentMarkdownFromBlocks(blocks: List<String>): String {
     }
 }
 
-private class DocumentMarkdownContext {
+private class DocumentMarkdownContext(private val allowedMathStarts: Set<Pair<Int, Int>>? = null) {
+    val pairedMathStarts = mutableSetOf<Pair<Int, Int>>()
+    private val pendingMathStarts = mutableMapOf<String, Pair<Int, Int>>()
+    private var lineNumber = 0
+    private var currentLineNumber = 0
     private var fence: Pair<Char, Int>? = null
+    private var fenceQuoteDepth = 0
+    private var fenceListIndent: Int? = null
     private var mathEnd: String? = null
     private var previousLine = ""
+    private var previousQuoteDepth = 0
+    private var listIndent: Int? = null
+    private var listQuoteDepth = 0
+    private var indentedCode = false
     private var table = false
 
     fun continuesWith(nextBlock: String): Boolean {
-        if (fence != null || mathEnd != null) return true
-        val next = nextBlock.lineSequence().firstOrNull().orEmpty()
+        if (fence != null && fenceContent(nextBlock.lineSequence().firstOrNull().orEmpty()) != null) return true
+        if (mathEnd != null) return true
+        val (nextQuoteDepth, nextRaw) = quoteContent(nextBlock.lineSequence().firstOrNull().orEmpty())
+        val next = if (nextQuoteDepth == listQuoteDepth && listIndent != null && LIST_ITEM.find(nextRaw) == null) {
+            removeIndent(nextRaw, listIndent!!) ?: nextRaw
+        } else nextRaw
+        if (indentedCode && (next.isBlank() || isIndented(next))) return true
+        if (previousQuoteDepth > 0 && nextQuoteDepth > 0) return true
         if (previousLine.isBlank() || next.isBlank()) return false
         val leftCells = tableCells(previousLine)
         val rightCells = tableCells(next)
@@ -61,46 +84,112 @@ private class DocumentMarkdownContext {
         if (table && rightCells != null) return true
         // Retain tight lists and indented continuation lines, but never make a
         // following independent prose block a lazy list/quote continuation.
-        if (LIST_ITEM.containsMatchIn(previousLine) &&
-            (LIST_ITEM.containsMatchIn(next) || next.startsWith("  ") || next.startsWith("\t"))) return true
-        if (previousLine.trimStart().startsWith(">") && next.trimStart().startsWith(">")) return true
+        if (listIndent != null && nextQuoteDepth == listQuoteDepth &&
+            (LIST_ITEM.containsMatchIn(nextRaw) || removeIndent(nextRaw, listIndent!!) != null)) return true
         if (isIndented(previousLine) && isIndented(next)) return true
         return SETEXT.matches(next) && !previousLine.trimStart().startsWith("#")
     }
 
     fun read(text: String) {
         text.lineSequence().forEach { line ->
+            currentLineNumber = lineNumber++
             val activeFence = fence
             if (activeFence != null) {
-                val marker = fenceMarker(line)
-                if (marker != null && marker.first == activeFence.first && marker.second >= activeFence.second &&
-                    line.trimStart().drop(marker.second).isBlank()) fence = null
-                previousLine = line
-                table = false
-                return@forEach
+                val content = fenceContent(line)
+                if (content != null) {
+                    val marker = fenceMarker(content)
+                    if (marker != null && marker.first == activeFence.first && marker.second >= activeFence.second &&
+                        content.trimStart().drop(marker.second).isBlank()) fence = null
+                    previousLine = content
+                    previousQuoteDepth = fenceQuoteDepth
+                    table = false
+                    return@forEach
+                }
+                // A quoted/list fence ends with its container. It must not
+                // capture ordinary paragraphs after the quote or list.
+                fence = null
             }
-            val marker = if (mathEnd == null) fenceMarker(line) else null
-            if (marker != null && (marker.first != '`' || !line.trimStart().drop(marker.second).contains('`'))) {
+            val (quoteDepth, raw) = quoteContent(line)
+            if (quoteDepth != listQuoteDepth) listIndent = null
+            val item = LIST_ITEM.find(raw)
+            val content = if (item != null) {
+                listIndent = indentationColumns(item.value)
+                listQuoteDepth = quoteDepth
+                raw.substring(item.range.last + 1)
+            } else if (listIndent != null && raw.isNotBlank()) {
+                removeIndent(raw, listIndent!!) ?: raw.also { listIndent = null }
+            } else raw
+            val marker = if (mathEnd == null) fenceMarker(content) else null
+            if (marker != null && (marker.first != '`' || !content.trimStart().drop(marker.second).contains('`'))) {
                 fence = marker
-                previousLine = line
+                fenceQuoteDepth = quoteDepth
+                fenceListIndent = listIndent
+                pendingMathStarts.clear()
+                indentedCode = false
+                previousLine = content
+                previousQuoteDepth = quoteDepth
                 table = false
                 return@forEach
             }
-            readMath(line)
-            val cells = tableCells(line)
+            if (content.isNotBlank()) indentedCode = isIndented(content)
+            if (!indentedCode || mathEnd != null) readMath(content) else pendingMathStarts.clear()
+            val cells = tableCells(content)
             table = when {
-                line.isBlank() || cells == null -> false
+                content.isBlank() || cells == null -> false
                 cells.all { TABLE_DELIMITER.matches(it.trim()) } -> {
                     val header = tableCells(previousLine)
                     header != null && header.size == cells.size
                 }
                 else -> table
             }
-            previousLine = line
+            previousLine = content
+            previousQuoteDepth = quoteDepth
         }
     }
 
+    private fun fenceContent(line: String): String? {
+        val (depth, content) = quoteContent(line, fenceQuoteDepth)
+        if (depth != fenceQuoteDepth) return null
+        val indent = fenceListIndent ?: return content
+        return if (content.isBlank()) content else removeIndent(content, indent)
+    }
+
+    /** Remove only structural prefixes from a parsing view, never from output. */
+    private fun quoteContent(line: String, limit: Int = Int.MAX_VALUE): Pair<Int, String> {
+        var remaining = line
+        var depth = 0
+        while (depth < limit) {
+            val spaces = remaining.takeWhile { it == ' ' }.length
+            if (spaces > 3 || remaining.getOrNull(spaces) != '>') break
+            remaining = remaining.drop(spaces + 1)
+            if (remaining.startsWith(" ") || remaining.startsWith("\t")) remaining = remaining.drop(1)
+            depth++
+        }
+        return depth to remaining
+    }
+
+    private fun indentationColumns(prefix: String): Int {
+        var column = 0
+        prefix.forEach { character -> column += if (character == '\t') 4 - column % 4 else 1 }
+        return column
+    }
+
+    private fun removeIndent(line: String, columns: Int): String? {
+        var column = 0
+        var index = 0
+        while (index < line.length && column < columns) {
+            when (line[index]) {
+                ' ' -> column++
+                '\t' -> column += 4 - column % 4
+                else -> return null
+            }
+            index++
+        }
+        return if (column >= columns) " ".repeat(column - columns) + line.substring(index) else null
+    }
+
     private fun readMath(line: String) {
+        if (allowedMathStarts == null) { collectMathPairs(line); return }
         var index = 0
         var codeTicks = 0
         while (index < line.length) {
@@ -124,11 +213,48 @@ private class DocumentMarkdownContext {
                         line.startsWith("\\(", index) -> "\\)"
                         else -> null
                     }
-                    if (close != null) {
+                    if (close != null && (currentLineNumber to index) in allowedMathStarts) {
                         mathEnd = close
                         index += 2
                         continue
                     }
+                }
+            }
+            index++
+        }
+    }
+
+    private fun collectMathPairs(line: String) {
+        var index = 0
+        var codeTicks = 0
+        while (index < line.length) {
+            if (line[index] == '`' && !escaped(line, index)) {
+                val length = line.drop(index).takeWhile { it == '`' }.length
+                if (codeTicks == 0) {
+                    pendingMathStarts.clear()
+                    codeTicks = length
+                } else if (codeTicks == length) codeTicks = 0
+                index += length
+                continue
+            }
+            if (codeTicks == 0 && !escaped(line, index)) {
+                val marker = when {
+                    line.startsWith("\$\$", index) -> "\$\$"
+                    line.startsWith("\\[", index) -> "\\["
+                    line.startsWith("\\]", index) -> "\\]"
+                    line.startsWith("\\(", index) -> "\\("
+                    line.startsWith("\\)", index) -> "\\)"
+                    else -> null
+                }
+                if (marker != null) {
+                    val end = when (marker) { "\\[" -> "\\]"; "\\(" -> "\\)"; else -> marker }
+                    if (marker == end) {
+                        val start = pendingMathStarts.remove(end)
+                        if (start != null) pairedMathStarts += start
+                        else if (marker == "\$\$") pendingMathStarts[end] = currentLineNumber to index
+                    } else if (end !in pendingMathStarts) pendingMathStarts[end] = currentLineNumber to index
+                    index += 2
+                    continue
                 }
             }
             index++
@@ -262,10 +388,45 @@ class DocumentMarkdownBlocksTest {
     }
     @Test fun quoteAndIndentedCodeStayContiguousButEndBeforeProse() {
         assertEquals("> 甲\n> 乙\n\n正文", documentMarkdownFromBlocks(listOf("> 甲", "> 乙", "正文")))
+        assertEquals("> 甲\n>\n> 乙\n\n正文", documentMarkdownFromBlocks(listOf("> 甲", ">", "> 乙", "正文")))
         assertEquals("    a\n    b\n\n正文", documentMarkdownFromBlocks(listOf("    a", "    b", "正文")))
     }
     @Test fun setextHeadingBoundaryIsNotBroken() {
         assertEquals("标题\n===\n\n正文", documentMarkdownFromBlocks(listOf("标题", "===", "正文")))
+    }
+    @Test fun quotedFencesKeepMathMarkersLiteralAndReleaseFollowingParagraphs() {
+        for (prefix in listOf("> ", "> > ")) {
+            val code = listOf(prefix + "```text", prefix + "\\[", prefix + "\$\$", prefix + "```")
+            assertEquals(code.joinToString("\n") + "\n\n甲\n\n乙", documentMarkdownFromBlocks(code + listOf("甲", "乙")))
+        }
+    }
+    @Test fun listContainerFenceKeepsExactCodeBlankLines() {
+        val code = listOf("- 项目", "    ```text", "    a", "", "    b", "    ```")
+        assertEquals(code.joinToString("\n") + "\n\n甲\n\n乙", documentMarkdownFromBlocks(code + listOf("甲", "乙")))
+    }
+    @Test fun indentedCodeKeepsBlankLinesAndDoesNotOpenMath() {
+        val code = listOf("    \\[", "    \$\$", "", "    x")
+        assertEquals(code.joinToString("\n") + "\n\n甲\n\n乙", documentMarkdownFromBlocks(code + listOf("甲", "乙")))
+    }
+    @Test fun continuedListItemsRemainTightAcrossBlocks() {
+        val items = listOf("- 甲\n  详情", "- 乙", "  ```text", "  x", "  ```", "- 丙")
+        assertEquals(items.joinToString("\n") + "\n\n正文", documentMarkdownFromBlocks(items + "正文"))
+    }
+    @Test fun unfinishedContainerFencesEndWhenTheirContainerEnds() {
+        for (code in listOf(listOf("> ```", "> x"), listOf("- ```", "  x"))) {
+            assertEquals(code.joinToString("\n") + "\n\n甲\n\n乙", documentMarkdownFromBlocks(code + listOf("甲", "乙")))
+        }
+    }
+    @Test fun incompleteMathDoesNotCaptureLaterCanvasParagraphs() {
+        for (opening in listOf("\$\$", "\\[", "\\(")) {
+            val blocks = listOf("未完成 $opening", "甲", "乙")
+            assertEquals(blocks.joinToString("\n\n"), documentMarkdownFromBlocks(blocks))
+        }
+        assertEquals("未完成 \$\$\n\n\\[\nx+y\n\\]\n\n正文", documentMarkdownFromBlocks(listOf("未完成 \$\$", "\\[", "x+y", "\\]", "正文")))
+    }
+    @Test fun mathCannotPairAcrossProtectedCode() {
+        val blocks = listOf("未完成 \$\$", "```", "\$\$", "```", "甲", "乙")
+        assertEquals("未完成 \$\$\n\n```\n\$\$\n```\n\n甲\n\n乙", documentMarkdownFromBlocks(blocks))
     }
     @Test fun eachProjectionStartsWithFreshSyntaxState() {
         documentMarkdownFromBlocks(listOf("```", "unclosed"))
@@ -363,7 +524,14 @@ mod tests {
         assert!(generator.contains("android_document_markdown::TEST_PATH"));
         assert!(generator.contains("android_document_markdown::TEST_CONTENTS"));
         let write = generator.split("fn write_source(").nth(1).unwrap();
-        let transform = write.find("android_document_markdown::render(relative_path, &contents)").unwrap();
-        assert!(transform < write.find("fs::write(destination, contents.trim_start())").unwrap());
+        let transform = write
+            .find("android_document_markdown::render(relative_path, &contents)")
+            .unwrap();
+        assert!(
+            transform
+                < write
+                    .find("fs::write(destination, contents.trim_start())")
+                    .unwrap()
+        );
     }
 }

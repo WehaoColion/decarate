@@ -1,3 +1,4 @@
+# v0.0.28 - Gate document Markdown block projection and executed separator mutations.
 # v0.0.27 - Freeze finance navigation mutation and gate its real generated integration.
 # v0.0.26 - Freeze document caret and header verification and gate their generated integration.
 # v0.0.25 - Freeze the legal workflow verifier and require generated confirmation boundaries.
@@ -44,6 +45,7 @@ function Get-TaskInputs {
     if([version]$taskVersion -ge [version]'2.23.2.9'){$paths += Join-Path $taskRoot 'tools\verify_legal_workflow_mutation.ps1'}
     if([version]$taskVersion -ge [version]'2.23.2.10'){$paths += @('tools\verify_document_caret_mutation.ps1','tools\verify_knowledge_header_mutation.ps1') | ForEach-Object {Join-Path $taskRoot $_}}
     if([version]$taskVersion -ge [version]'2.23.2.11'){$paths += Join-Path $taskRoot 'tools\verify_finance_workspace_mutation.ps1'}
+    if([version]$taskVersion -ge [version]'2.23.2.12'){$paths += Join-Path $taskRoot 'tools\verify_document_markdown_mutation.ps1'}
     # Cargo gates timer_windows_client behind the desktop feature. Its private
     # desktop/ modules are not inputs to the Android library, generator or tests.
     # Shared library modules (including desktop_*.rs) remain in the snapshot.
@@ -142,6 +144,7 @@ try {
     $formatPaths += Join-Path $taskCrate 'src\sourcegen\legal_risk_ui_source.rs'
     if([version]$taskVersion -ge [version]'2.23.2.9'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_legal_workflow.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.11'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_finance_workspace.rs'}
+    if([version]$taskVersion -ge [version]'2.23.2.12'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_document_markdown.rs'}
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
@@ -217,6 +220,7 @@ try {
     )
     if([version]$taskVersion -ge [version]'2.23.2.9'){$taskWorkflowSuites += @{name='LegalAnalysisWorkflowTest';package='ui';source='android_legal_workflow.rs'}}
     if([version]$taskVersion -ge [version]'2.23.2.10'){$taskWorkflowSuites += @{name='DocumentCaretPolicyTest';package='ui';source='android_document_caret.rs'}}
+    if([version]$taskVersion -ge [version]'2.23.2.12'){$taskWorkflowSuites += @{name='DocumentMarkdownBlocksTest';package='ui';source='android_document_markdown.rs'}}
     foreach ($suite in $taskWorkflowSuites) {
         $suiteSource = Get-Content -LiteralPath (Join-Path $taskCrate ('src\sourcegen\'+$suite.source)) -Raw
         $suiteBody = [regex]::Match($suiteSource, '(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;')
@@ -306,6 +310,56 @@ try {
         $taskFinanceIntegration=[ordered]@{passed=$true;finalTransformConnected=$true;policyConnectedToRealPanel=$true;workspaceAndMonthLifetime=$true;allDetailSectionsPresent=$true;legalWorkflowEntryPreserved=$true;businessTests=5;testNames=$financeTestNames;hostOnly=$true;deviceVerified=$false;generatedFiles=@($financePanelPath,$financeGridPath | ForEach-Object {[ordered]@{path=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $taskRoot $_)).Hash.ToLowerInvariant()}})}
         Write-TaskJson 'finance_workspace_generated_acceptance.json' $taskFinanceIntegration
     }
+    $taskMarkdownIntegration = $null
+    if([version]$taskVersion -ge [version]'2.23.2.12'){
+        $markdownSourcePath='native/gridtimer_native/src/sourcegen/android_document_markdown.rs'
+        $markdownTemplatePath='native/gridtimer_native/src/sourcegen/kotlin_sources.rs'
+        $markdownVerifierPath='tools/verify_document_markdown_mutation.ps1'
+        foreach($inputPath in @($markdownSourcePath,$markdownTemplatePath,$markdownVerifierPath)){
+            if(@($before.files | Where-Object path -eq $inputPath).Count -ne 1){throw ('Document Markdown input was not frozen: '+$inputPath)}
+        }
+        Invoke-TaskCommand (Get-Command pwsh -ErrorAction Stop).Source @('-NoProfile','-File',(Join-Path $taskRoot $markdownVerifierPath),'-Version',$taskVersion) 'document_markdown_mutation.log'
+        $markdownReceipt=Get-Content -LiteralPath (Join-Path $taskEvidence 'document_markdown_mutation/receipt.json') -Raw | ConvertFrom-Json
+        if(!$markdownReceipt.passed -or !$markdownReceipt.productionUnchanged -or $markdownReceipt.version -ne $taskVersion -or $markdownReceipt.sourceSnapshotSha256 -cne $before.sha256 -or $markdownReceipt.tests -ne $taskAiWorkflowCounts.DocumentMarkdownBlocksTest -or $markdownReceipt.cases.Count -ne 5){throw 'Document Markdown mutation is not bound to the actual formal build'}
+        foreach($identity in @(
+            @{path=$markdownSourcePath;before=$markdownReceipt.sourceSha256Before;after=$markdownReceipt.sourceSha256After},
+            @{path=$markdownTemplatePath;before=$markdownReceipt.templateSha256Before;after=$markdownReceipt.templateSha256After},
+            @{path=$markdownVerifierPath;before=$markdownReceipt.verifierSha256;after=$markdownReceipt.verifierSha256}
+        )){
+            $frozen=@($before.files | Where-Object path -eq $identity.path)
+            if($frozen.Count -ne 1 -or $frozen[0].sha256 -cne $identity.before -or $frozen[0].sha256 -cne $identity.after -or (Get-FileHash -LiteralPath (Join-Path $taskRoot $identity.path)).Hash.ToLowerInvariant() -cne $identity.after){throw ('Document Markdown mutation source identity changed: '+$identity.path)}
+        }
+        $markdownCaseKinds=@{baseline='';cosmetic='';removed_paragraph_separator='independentParagraphsHaveBlankLineBoundaries';removed_fence_continuation='splitBacktickFencePreservesCodeLinesAndBlankLines';restored=''}
+        foreach($caseName in $markdownCaseKinds.Keys){
+            $case=@($markdownReceipt.cases | Where-Object name -eq $caseName)
+            if($case.Count -ne 1 -or !$case[0].passed -or $case[0].compileExit -ne 0 -or !$case[0].allBusinessTestsObserved -or $null -eq $case[0].testExit -or $case[0].testsSha256 -cne $markdownReceipt.testsSha256){throw ('Document Markdown mutation case is incomplete: '+$caseName)}
+            $compilePath=Join-Path $taskEvidence ('document_markdown_mutation/'+$caseName+'/compile.log')
+            $testPath=Join-Path $taskEvidence ('document_markdown_mutation/'+$caseName+'/tests.log')
+            if((Get-FileHash -LiteralPath $compilePath).Hash.ToLowerInvariant() -cne $case[0].compileLogSha256 -or (Get-FileHash -LiteralPath $testPath).Hash.ToLowerInvariant() -cne $case[0].testLogSha256){throw ('Document Markdown mutation logs changed: '+$caseName)}
+            if($markdownCaseKinds[$caseName]){
+                if($case[0].testExit -eq 0 -or !$case[0].requiredFailureObserved -or $case[0].requiredFailureTest -ne $markdownCaseKinds[$caseName]){throw ('Document Markdown state guard removal was not detected: '+$caseName)}
+            }elseif($case[0].testExit -ne 0 -or $case[0].helperSha256 -cne $markdownReceipt.helperSha256 -and $caseName -ne 'cosmetic'){
+                throw ('Document Markdown baseline or cosmetic verification failed: '+$caseName)
+            }
+        }
+        $markdownSource=Get-Content -LiteralPath (Join-Path $taskRoot $markdownSourcePath) -Raw
+        $markdownHelperLiteral=[regex]::Match($markdownSource,'(?s)(?:pub\s+)?const HELPERS:\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+        $markdownTestsLiteral=[regex]::Match($markdownSource,'(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+        if(!$markdownHelperLiteral.Success -or !$markdownTestsLiteral.Success){throw 'Rust-owned Markdown projection or tests are absent'}
+        $markdownHash={param([string]$value) [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($value.Replace("`r`n","`n")))).ToLowerInvariant()}
+        if((& $markdownHash $markdownHelperLiteral.Groups['body'].Value) -cne $markdownReceipt.helperLiteralSha256 -or (& $markdownHash $markdownTestsLiteral.Groups['body'].Value) -cne $markdownReceipt.testsSha256){throw 'Markdown mutation used a different Rust-owned helper or test suite'}
+        $markdownEditorPath='app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/NoteDocumentEditor.kt'
+        $markdownTestsPath='app/build/generated/source/rustAndroid/test/com/ofairyo/gridtimer/ui/DocumentMarkdownBlocksTest.kt'
+        $markdownEditor=(Get-Content -LiteralPath (Join-Path $taskRoot $markdownEditorPath) -Raw).Replace("`r`n","`n")
+        $previewMarker='internal fun documentMarkdownPreviewText('
+        $previewStart=$markdownEditor.IndexOf($previewMarker,[StringComparison]::Ordinal)
+        $previewEnd=if($previewStart -ge 0){$markdownEditor.IndexOf("`n}`n",$previewStart,[StringComparison]::Ordinal)}else{-1}
+        if($previewEnd -lt $previewStart -or $previewStart -lt 0 -or !$markdownEditor.Contains($markdownHelperLiteral.Groups['body'].Value.Replace("`r`n","`n"))){throw 'The executed Markdown helper is not present in the generated document editor'}
+        $generatedPreview=$markdownEditor.Substring($previewStart,$previewEnd-$previewStart+2)
+        if((& $markdownHash $generatedPreview) -cne $markdownReceipt.previewSha256 -or (& $markdownHash (Get-Content -LiteralPath (Join-Path $taskRoot $markdownTestsPath) -Raw)) -cne $markdownReceipt.testsSha256){throw 'The generated document projection or suite differs from the executed mutation'}
+        $taskMarkdownIntegration=[ordered]@{passed=$true;businessTests=$taskAiWorkflowCounts.DocumentMarkdownBlocksTest;mutationPassed=$true;sourceSnapshotSha256=$before.sha256;helperLiteralSha256=$markdownReceipt.helperLiteralSha256;previewSha256=$markdownReceipt.previewSha256;testsSha256=$markdownReceipt.testsSha256;receiptSha256=(Get-FileHash -LiteralPath (Join-Path $taskEvidence 'document_markdown_mutation/receipt.json')).Hash.ToLowerInvariant();hostOnly=$true;deviceVerified=$false;generatedFiles=@($markdownEditorPath,$markdownTestsPath | ForEach-Object {[ordered]@{path=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $taskRoot $_)).Hash.ToLowerInvariant()}})}
+        Write-TaskJson 'document_markdown_generated_acceptance.json' $taskMarkdownIntegration
+    }
     Copy-Item -LiteralPath (Join-Path $taskRoot 'app\build\reports\lint-results-release.xml') -Destination (Join-Path $taskEvidence 'lint-results-release.xml') -Force
     $apk = Join-Path $taskRoot "app\build\outputs\apk\release\tenfold_v$taskVersion.apk"
     $result = [ordered]@{schemaVersion=1;version=$taskVersion;mode=$Mode;passed=$true;noDeviceOperations=$true;sourceSnapshotSha256=$before.sha256;editingTests=$expectedTests;nativeArgumentEncoding=$taskNativeEncoding;completed=(Get-Date).ToUniversalTime().ToString('o');checks=@('rust_format','native_tests','sourcegen_tests','packager_tests','android_source_audit','android_jvm_tests','android_lint')}
@@ -322,6 +376,7 @@ try {
     if($taskLegalWorkflowIntegration){$result['legalWorkflowIntegration']=$taskLegalWorkflowIntegration}
     if($taskDocumentIntegration){$result['documentIntegration']=$taskDocumentIntegration}
     if($taskFinanceIntegration){$result['financeWorkspaceTests']=5;$result['financeWorkspaceIntegration']=$taskFinanceIntegration}
+    if($taskMarkdownIntegration){$result['documentMarkdownTests']=$taskMarkdownIntegration.businessTests;$result['documentMarkdownIntegration']=$taskMarkdownIntegration}
     $result['mathNativeTests'] = $taskMathTests.Count
     $result['mathNativeTestNames'] = $taskMathTests
     if($Mode -eq 'build'){

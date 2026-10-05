@@ -1,3 +1,4 @@
+// v2.23.2.12 - Record document preview paragraph preservation and Markdown boundary repairs.
 // v2.23.2.11 - Record task-oriented financial risk and original review semantics.
 // v2.23.2.10 - Record compact knowledge header and document caret visibility.
 // v2.23.2.9 - Record visible legal actions and explicit send confirmation.
@@ -14,7 +15,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.11";
+pub const LATEST_VERSION: &str = "2.23.2.12";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -44,6 +45,29 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.12",
+        updatedAt = "2026-10-05 20:09",
+        summary = "修复文档预览将独立段落合并的问题，保留代码、公式与列表边界",
+        sections = listOf(
+            AndroidUpdateSection("正文段落与实时草稿", listOf(
+                "修复知识文档中多个独立正文块进入预览后被连成一个段落的问题。普通正文块按独立段落排版，标题之间的段落顺序和文字保持一致，不需要重新输入正文、补空行或迁移旧笔记。",
+                "预览继续优先使用编辑框中的实时草稿，未保存的输入也参与预览。单个导入Markdown块及其内部软换行、显式硬换行、CRLF、Unicode和尾部空白保留原文，避免排版操作改写用户内容。"
+            )),
+            AndroidUpdateSection("代码、公式与连续结构", listOf(
+                "跨块的围栏代码和显示公式保留结构所需的单换行；表格表头、分隔行和数据行保持连续，编号、待办及引用的标记继续保留。普通正文恢复独立段落，不被前一个列表或引用误当作续行。",
+                "补核列表、引用及缩进代码中的特殊符号。代码里的公式分隔符按代码处理，避免误开启公式状态后把后面的正文重新合并；容器内代码的空行和围栏闭合也纳入检查。原生公式渲染器、离线KaTeX资源及其安全边界沿用现有实现。"
+            )),
+            AndroidUpdateSection("内容保存与已有功能", listOf(
+                "本次调整仅用于只读预览投影，不改变存储正文、文档块ID、组合输入、撤销重做或保存流程。Markdown关闭、富文本启用或包含非文本块时，继续遵循原有预览资格限制。",
+                "保留此前已修订的风控总览、月份核对、预测、知识页头部、键盘光标避让和AI问答功能。更新记录继续支持点按复制、整版复制、折叠和历史版本入口；历史记录与时间不修改。"
+            )),
+            AndroidUpdateSection("版本与验收范围", listOf(
+                "版本2.23.2.12，内部版本代码22281，包名com.ofairyo.gridtimer，沿用原正式签名。Windows正式版本保持1.1.0.7，配套服务、安装文件和发布清单不因本次安卓修订而更新。",
+                "候选安装包按Rust源码生成、正式版单元测试、lint和签名构建流程核对。段落分隔及代码边界采用真实输入规格和变异验证，文案或样式变化不应使业务规格失败，移除关键判断应由对应规格发现。电脑构建不能代替真机验收；覆盖安装、复杂嵌套排版、键盘和返回保存仍需实际手机核验。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.11",
         updatedAt = "2026-10-05 16:01",
