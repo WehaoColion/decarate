@@ -343,10 +343,10 @@ if([version]$releaseVersion -ge [version]'2.23.2.11'){
     $financeMutation=Get-Content -LiteralPath (Join-Path $evidence 'finance_workspace_mutation/receipt.json') -Raw | ConvertFrom-Json
     $financeActual=Get-Content -LiteralPath (Join-Path $releaseRoot $financeSourcePath) -Raw
     $financeBodies=@{}
-    foreach($name in @('POLICY','TEST_CONTENTS','WORKSPACE','COMPONENTS')){
-        $literal=[regex]::Match($financeActual,'(?s)(?:pub\s+)?const\s+'+$name+':\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
-        if(!$literal.Success){throw ('Rust-owned finance literal is missing: '+$name)}
-        $financeBodies[$name]=$literal.Groups['body'].Value.Replace("`r`n","`n")
+    foreach($financeLiteralName in @('POLICY','TEST_CONTENTS','WORKSPACE','COMPONENTS')){
+        $literal=[regex]::Match($financeActual,'(?s)(?:pub\s+)?const\s+'+$financeLiteralName+':\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+        if(!$literal.Success){throw ('Rust-owned finance literal is missing: '+$financeLiteralName)}
+        $financeBodies[$financeLiteralName]=$literal.Groups['body'].Value.Replace("`r`n","`n")
     }
     $financeTestNames=@([regex]::Matches($financeBodies.TEST_CONTENTS,'@Test\s+fun\s+(\w+)\s*\(') | ForEach-Object {$_.Groups[1].Value})
     $financeRequiredTests=@('newMonthClosesOldDetailAndReturnsToOverview','newWorkspaceDoesNotInheritFinancialDetail','switchingTaskClearsThePreviousDialog','reviewCountUsesAllFourExplicitFlags','alertPreviewIsBoundedWithoutChangingTheTotal')
