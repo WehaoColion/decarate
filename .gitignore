@@ -56,7 +56,7 @@ native/gridtimer_native/xiaomi_setup_status.md
 /grid_timer_app_v2.19-*.apk
 /*.exe
 
-# Original thesis folder uses non-English paths; republished copies live under documents/thesis/.
+# Retain exclusions for historical non-English folders.
 /*[!a-zA-Z0-9_.-]*/
 
 # Private local materials and baseline publication exclusions
@@ -73,6 +73,7 @@ native/gridtimer_native/xiaomi_setup_status.md
 *.sqlite
 *.sqlite3
 documents/thesis/
+/local_archive/
 documents/*.docx
 documents/*context*.md
 /windows_client_audit_context*

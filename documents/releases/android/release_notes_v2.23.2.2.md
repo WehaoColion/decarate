@@ -61,6 +61,6 @@
 
 ## 安装后配置
 
-覆盖安装 [tenfold_v2.23.2.2.apk](APK/tenfold_v2.23.2.2.apk)，进入“我的 → AI 设置 → DeepSeek 官方”，填入或粘贴本人在官方平台创建的API Key，再点“保存并测试连接”。通过后可进入“风控 → 法律风险线索”，核对发送预览后明确开始分析。测试失败时按页面的密钥、额度、频率或网络提示处理，不把失败结果当作已连接。
+覆盖安装 tenfold_v2.23.2.2.apk（本机历史记录路径：`APK/tenfold_v2.23.2.2.apk`），进入“我的 → AI 设置 → DeepSeek 官方”，填入或粘贴本人在官方平台创建的API Key，再点“保存并测试连接”。通过后可进入“风控 → 法律风险线索”，核对发送预览后明确开始分析。测试失败时按页面的密钥、额度、频率或网络提示处理，不把失败结果当作已连接。
 
 本轮证据位于 `release_artifacts/verification/v2.23.2.2/`，主要记录为 `offline_build_acceptance.json`、`android_unit_summary.json`、`ai_connection_mutation/receipt.json`、`delivery_receipt.json`、`post_publish_package_check.json` 和 `windows_retained_after_publish.json`。

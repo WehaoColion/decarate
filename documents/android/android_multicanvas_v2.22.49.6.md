@@ -33,10 +33,10 @@
 
 ## 交付记录
 
-正式 APK 为 [tenfold_v2.22.49.6.apk](../APK/tenfold_v2.22.49.6.apk)，versionCode 为 22256，大小为 20,062,887 字节。
+正式 APK 为 tenfold_v2.22.49.6.apk（本机历史记录路径：`APK/tenfold_v2.22.49.6.apk`），versionCode 为 22256，大小为 20,062,887 字节。
 
 SHA-256：`743a9ea6542ccbab696d5c2d693f69dc89eb973d80da25d8b7076cb1ee6ff0ca`。
 
 升级签名与 2.22.49.5 一致。项目根目录、APK 目录、当前发布目录和构建目录的正式包哈希相同。旧交付 APK 已转入 `old_apks`。Windows 保持 1.0.3.10，发布文件哈希和修改时间核验一致。
 
-证据见 [构建验收](../release_artifacts/verification/v2.22.49.6/offline_build_acceptance.json)、[交付回执](../release_artifacts/verification/v2.22.49.6/delivery_receipt.json) 和 [发布后复核](../release_artifacts/verification/v2.22.49.6/post_publish_package_check.json)。
+证据见 构建验收（本机历史记录路径：`release_artifacts/verification/v2.22.49.6/offline_build_acceptance.json`）、交付回执（本机历史记录路径：`release_artifacts/verification/v2.22.49.6/delivery_receipt.json`） 和 发布后复核（本机历史记录路径：`release_artifacts/verification/v2.22.49.6/post_publish_package_check.json`）。

@@ -27,7 +27,7 @@ Android 画布对未变化的连线缓存端点、箭头和可见范围。平移
 
 主机预热后的连线测试中，两版每帧堆分配均为 0；该指标不包含真实 Android 绘制和卡片文字处理，也不代表应用驻留内存。卡片副本及文本配对对象的消除由源码核对确认，尚未在真机上量化内存或垃圾回收收益。
 
-详细数据见 [性能对比记录](../release_artifacts/verification/v2.22.49.7/canvas_render_performance/comparison.json)。
+详细数据见 性能对比记录（本机历史记录路径：`release_artifacts/verification/v2.22.49.7/canvas_render_performance/comparison.json`）。
 
 ## 回归与发布验证
 
@@ -37,8 +37,8 @@ Android 画布对未变化的连线缓存端点、箭头和可见范围。平移
 
 正式编译通过，构建前后源码快照一致。Android Lint 为 0 错误、14 个警告和 8 个信息项，与 2.22.49.6 的问题种类和消息一致。本次未进行真机操作或触控、帧率测试，也未启动模拟器。
 
-正式 APK 为 [tenfold_v2.22.49.7.apk](../APK/tenfold_v2.22.49.7.apk)，versionCode 为 22257，大小 20,065,055 字节。SHA-256 为 `d7437ee42689eccc4c0d184a4fa48691480e1c4573169c9810371f6d9c76eacf`。
+正式 APK 为 tenfold_v2.22.49.7.apk（本机历史记录路径：`APK/tenfold_v2.22.49.7.apk`），versionCode 为 22257，大小 20,065,055 字节。SHA-256 为 `d7437ee42689eccc4c0d184a4fa48691480e1c4573169c9810371f6d9c76eacf`。
 
 签名与上一版一致，三种处理器架构、画布 JNI 与 DEX 类、16 KB 对齐和非调试属性检查通过。各交付目录的正式包哈希一致，旧 APK 已转入 `old_apks`。Windows 1.0.3.10 的文件哈希和修改时间核验一致。
 
-证据见 [正式构建验收](../release_artifacts/verification/v2.22.49.7/offline_build_acceptance.json)、[交付回执](../release_artifacts/verification/v2.22.49.7/delivery_receipt.json) 和 [发布后复核](../release_artifacts/verification/v2.22.49.7/post_publish_package_check.json)。
+证据见 正式构建验收（本机历史记录路径：`release_artifacts/verification/v2.22.49.7/offline_build_acceptance.json`）、交付回执（本机历史记录路径：`release_artifacts/verification/v2.22.49.7/delivery_receipt.json`） 和 发布后复核（本机历史记录路径：`release_artifacts/verification/v2.22.49.7/post_publish_package_check.json`）。

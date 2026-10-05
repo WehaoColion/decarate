@@ -99,6 +99,6 @@ Android 正式源快照 SHA-256：
 
 项目根目录、`APK/`、`release_artifacts/current/` 和 `app/build/outputs/apk/release/` 均为同一份 `tenfold_v2.23.2.1.apk`。旧版 2.23.2 的根目录、APK 目录和正式 current 副本已按来源归入 `old_apks/`，归档前后哈希均为原 `c7adead385d2bc79dfe6d593a0edcfd9834fb93b7d58c7c41f995c62417aab84`。app 构建输出只保留新版带版本号的正式 APK，没有 debug APK、xiaomi debug APK、app-release APK 或 AAB。
 
-验收记录位于 `release_artifacts/verification/v2.23.2.1/`：`offline_build_acceptance.json`、`build_completion.json`、`release_unit_suite_totals.json`、`apk_signature.txt`、`pre_publish_package_check.json`、`delivery_receipt.json` 和 `post_publish_package_check.json`。对应 Windows 正式说明与运行记录见 `release_notes_windows_v1.1.0.5.md` 及 `release_artifacts/verification/windows_v1.1.0.5/`。
+验收记录位于 `release_artifacts/verification/v2.23.2.1/`：`offline_build_acceptance.json`、`build_completion.json`、`release_unit_suite_totals.json`、`apk_signature.txt`、`pre_publish_package_check.json`、`delivery_receipt.json` 和 `post_publish_package_check.json`。对应 Windows 正式说明与运行记录见 `documents/releases/windows/release_notes_windows_v1.1.0.5.md` 及 `release_artifacts/verification/windows_v1.1.0.5/`。
 
 本次只修改 Rust 客户端源码与其源码生成器，未直接编辑生成后的 Kotlin。构建入口的 PowerShell 调整仅用于降低本机正式构建的内存压力。本次没有安卓真机运行或当次近一分钟等待的复现结果；已修复并验证的是保存积压、退出恢复副本写入和保存状态边界，以及金额精度的完整保存与同步路径。

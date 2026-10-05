@@ -12,7 +12,7 @@
 
 保留1.1.0.3的事务内启动快照复用、隐私处理准备复用、知识导航及列表缓存、按计时内容失效的读模型，以及计时请求排队和持久化确认。图标使用深青色底、金色数字10及向上箭头，桌面、窗口、任务栏和托盘采用同一套图形。
 
-完整功能说明见 [Windows1.1.0.3更新说明](release_notes_windows_v1.1.0.3.md)。局部性能测量和冷重建成本保留在 [本轮性能记录](documents/windows_deep_optimization_v1.1.0.3.md)，最终发布验收记录见 [Windows1.1.0.4验收](documents/windows_deep_optimization_v1.1.0.4.md)。这些测量不是完整正式客户端的冷启动对照，大型资料的慢端波动没有被省略。
+完整功能说明见 [Windows1.1.0.3更新说明](release_notes_windows_v1.1.0.3.md)。局部性能测量和冷重建成本保留在 [本轮性能记录](../../windows/windows_deep_optimization_v1.1.0.3.md)，最终发布验收记录见 [Windows1.1.0.4验收](../../windows/windows_deep_optimization_v1.1.0.4.md)。这些测量不是完整正式客户端的冷启动对照，大型资料的慢端波动没有被省略。
 
 ## 版本和兼容
 
