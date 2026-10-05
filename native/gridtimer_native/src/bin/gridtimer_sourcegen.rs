@@ -16,6 +16,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[path = "../sourcegen/android_finance_workspace.rs"]
+mod android_finance_workspace;
 #[path = "../sourcegen/android_ai_answer_ui.rs"]
 mod android_ai_answer_ui;
 #[path = "../sourcegen/android_ai_workflow.rs"]
@@ -135,6 +137,11 @@ fn run() -> io::Result<()> {
     fs::create_dir_all(&output_root)?;
 
     if let Some(unit_test_output_root) = unit_test_output_root {
+        write_source(
+            &unit_test_output_root,
+            android_finance_workspace::TEST_PATH,
+            android_finance_workspace::TEST_CONTENTS,
+        )?;
         write_source(
             &unit_test_output_root,
             android_document_caret::TEST_PATH,
@@ -546,6 +553,8 @@ fn write_source(output_root: &Path, relative_path: &str, contents: &str) -> io::
     let contents = android_legal_workflow::render(relative_path, contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = android_document_caret::render(relative_path, &contents)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let contents = android_finance_workspace::render(relative_path, &contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = contents
         .replace("十倍率", "tenfold")
