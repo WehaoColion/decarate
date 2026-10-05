@@ -40,4 +40,4 @@ Markdown 知识页默认以阅读预览打开。点“编辑原文”进入原�
 
 三个架构均核对了公式JNI和完整的离线公式库、字体CSS字节。升级证书保持一致，安装包通过16KiB对齐检查。根目录、APK目录、当前发布目录和正式输出目录的四份APK使用同一个文件哈希。上一版正式APK已归入old_apks。
 
-安装包：[tenfold_v2.23.2.6.apk](APK/tenfold_v2.23.2.6.apk)。SHA-256：`764c70879e0a697643939debc44abfb3cb5b0a42fd82f47c0cf20bb4a1ce4998`。
+安装包：tenfold_v2.23.2.6.apk（本机历史记录路径：`APK/tenfold_v2.23.2.6.apk`）。SHA-256：`764c70879e0a697643939debc44abfb3cb5b0a42fd82f47c0cf20bb4a1ce4998`。

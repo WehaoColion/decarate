@@ -8,4 +8,4 @@
 
 版本由 2.22.49.7 递增至 2.22.49.8，versionCode 为 22258。正式安装包：`tenfold_v2.22.49.8.apk`。Windows 保持 1.0.3.10，同步协议及 AppData 交换格式保持兼容。
 
-详细数据与验证边界见 [启动性能与真机验证报告](documents/android_startup_v2.22.49.8.md)。
+详细数据与验证边界见 [启动性能与真机验证报告](../../android/android_startup_v2.22.49.8.md)。

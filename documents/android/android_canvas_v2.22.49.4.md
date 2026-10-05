@@ -2,7 +2,7 @@ v2.22.49.4 - 安卓知识画布已正式发布，完成发布后的离线回归�
 
 ## 交付与使用
 
-Android 正式版为 2.22.49.4，versionCode 为 22254，较上一正式版只递增第四段。安装包为 [tenfold_v2.22.49.4.apk](../APK/tenfold_v2.22.49.4.apk)，大小为 20,061,055 字节。根目录、APK 目录、current 发布目录和正式构建输出中的交付副本哈希一致。三个旧交付副本已移入 old_apks，保留原有版本号和内容。Windows 正式版仍为 1.0.3.10，四个 Windows 配套文件的名称、大小和哈希与发布前一致。
+Android 正式版为 2.22.49.4，versionCode 为 22254，较上一正式版只递增第四段。安装包为 tenfold_v2.22.49.4.apk（本机历史记录路径：`APK/tenfold_v2.22.49.4.apk`），大小为 20,061,055 字节。根目录、APK 目录、current 发布目录和正式构建输出中的交付副本哈希一致。三个旧交付副本已移入 old_apks，保留原有版本号和内容。Windows 正式版仍为 1.0.3.10，四个 Windows 配套文件的名称、大小和哈希与发布前一致。
 
 入口为“知识 → 画布”。支持多画布、独立便签、原页面引用、拖动、双指缩放、卡片尺寸和颜色、有向连线、移除连线、删除卡片、自动排列、卡片列表定位、适应视图、重命名、删除画布、撤销和重做。数据模型、持久化和 JNI 实现在 Rust 中；安卓界面和桥接源码由项目既有的 Rust 源码生成流程生成。未增加手写应用 Kotlin 源文件。
 
@@ -14,13 +14,13 @@ Android 正式版为 2.22.49.4，versionCode 为 22254，较上一正式版只�
 
 | 检查范围 | 实际结果 | 证据 |
 | --- | --- | --- |
-| Rust 核心库 | 783 通过，0 失败；包括 13 项画布原生测试 | [原生日志](../release_artifacts/verification/v2.22.49.4/native_tests.log) |
-| Rust 源码生成器 | 109 通过，0 失败 | [生成器日志](../release_artifacts/verification/v2.22.49.4/sourcegen_tests.log) |
-| 打包逻辑 | 61 通过，0 失败 | [打包日志](../release_artifacts/verification/v2.22.49.4/packager_tests.log) |
-| JVM 业务与画布 | 原有业务 98 项、画布 9 项，共 107 项通过，无失败、错误或跳过 | [发布后回执](../release_artifacts/verification/v2.22.49.4/post_publish_acceptance.json) |
-| 持久化和容量场景 | 9 组通过 | [场景结果](../release_artifacts/verification/v2.22.49.4/post_publish_canvas_scenarios.json) |
-| Android Lint | 0 错误，14 警告，8 信息提示 | [重新生成的 Lint 报告](../release_artifacts/verification/v2.22.49.4/post_publish_lint.xml) |
-| 正式 APK 和升级兼容性 | 签名、版本、架构、JNI、DEX、对齐及交付副本一致性均通过 | [发布后包检查](../release_artifacts/verification/v2.22.49.4/post_publish_package_check.json) |
+| Rust 核心库 | 783 通过，0 失败；包括 13 项画布原生测试 | 原生日志（本机历史记录路径：`release_artifacts/verification/v2.22.49.4/native_tests.log`） |
+| Rust 源码生成器 | 109 通过，0 失败 | 生成器日志（本机历史记录路径：`release_artifacts/verification/v2.22.49.4/sourcegen_tests.log`） |
+| 打包逻辑 | 61 通过，0 失败 | 打包日志（本机历史记录路径：`release_artifacts/verification/v2.22.49.4/packager_tests.log`） |
+| JVM 业务与画布 | 原有业务 98 项、画布 9 项，共 107 项通过，无失败、错误或跳过 | 发布后回执（本机历史记录路径：`release_artifacts/verification/v2.22.49.4/post_publish_acceptance.json`） |
+| 持久化和容量场景 | 9 组通过 | 场景结果（本机历史记录路径：`release_artifacts/verification/v2.22.49.4/post_publish_canvas_scenarios.json`） |
+| Android Lint | 0 错误，14 警告，8 信息提示 | 重新生成的 Lint 报告（本机历史记录路径：`release_artifacts/verification/v2.22.49.4/post_publish_lint.xml`） |
+| 正式 APK 和升级兼容性 | 签名、版本、架构、JNI、DEX、对齐及交付副本一致性均通过 | 发布后包检查（本机历史记录路径：`release_artifacts/verification/v2.22.49.4/post_publish_package_check.json`） |
 
 Rust 核心库另有 7 项需要单独启动的合成性能分析未执行；4 项 Windows 传输取消及 WinHTTP 专项被排除出 Android 验收。打包测试另有 2 项 Windows 发布恢复演练未执行。这些均未计入通过数量。Lint 的 14 条警告涉及 API 级别、反射、可访问性和界面参数规则，报告如实保留，未把“无错误”写成“无告警”。
 
@@ -38,7 +38,7 @@ Rust 核心库另有 7 项需要单独启动的合成性能分析未执行；4 �
 
 绘制跳过屏幕外卡片，文字排版和页面标签使用有界缓存。拖动逐帧只更新临时视图，手势结束后才在后台执行一次保存。未修改的卡片、连线和其他画布通过共享数据减少复制，撤销栈按条数和容量同时限制。
 
-合成样本含 1000 张卡片和 999 条连线，持久化文件为 875,279 字节。卡片列表重复复制 100 次，完整复制累计分配 86,789,000 字节、400,100 次分配；共享复制为 0 字节、0 次分配。此指标仅衡量卡片列表复制环节，不代表整机内存、全部保存过程或手机帧率。主机 Debug 构建中 20 次真实落盘提交中位数为 288,744 微秒，重新打开的修订号为 20；测试源码副本哈希与正式构建一致。详见[合成性能记录](../release_artifacts/verification/v2.22.49.4/canvas_performance.json)。
+合成样本含 1000 张卡片和 999 条连线，持久化文件为 875,279 字节。卡片列表重复复制 100 次，完整复制累计分配 86,789,000 字节、400,100 次分配；共享复制为 0 字节、0 次分配。此指标仅衡量卡片列表复制环节，不代表整机内存、全部保存过程或手机帧率。主机 Debug 构建中 20 次真实落盘提交中位数为 288,744 微秒，重新打开的修订号为 20；测试源码副本哈希与正式构建一致。详见合成性能记录（本机历史记录路径：`release_artifacts/verification/v2.22.49.4/canvas_performance.json`）。
 
 ## 包身份与验证边界
 

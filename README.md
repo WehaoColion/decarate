@@ -1,8 +1,25 @@
-v2.23.2.11（Android候选）- 风控按总览、核对、预测分区，长清单在独立详情中处理；保留原核对、预测和法律发送确认，沿用正式签名与原APK流程，Windows保持1.1.0.7。详见[本版说明](release_notes_v2.23.2.11.md)。
-v2.23.2.10（Android已验收候选）- 精简知识列表顶部，修复文档换行后的光标与键盘避让；沿用正式签名和原APK流程，Windows保持1.1.0.7；用户已确认真机测试通过并授权合并PR #4与#5。详见[本版说明](release_notes_v2.23.2.10.md)。
-v1.1.0.7（Windows正式版）- 补齐直接问 AI、知识库问答与法律资料发送确认，改进离线 Markdown 和公式阅读；正式程序已在本机发布，公开仓库同步源码、发布元数据与验收范围。详见[本版说明](release_notes_windows_v1.1.0.7.md)。
-v2.23.2.9（Android候选）- 接入PR #3，让法律分析入口与主操作常显，增加与扫描和AI配置绑定的一次性发送确认；沿用正式签名与原APK交付位置，手机及真实模型验收待完成，Windows保持1.1.0.6。详见[本版说明](release_notes_v2.23.2.9.md)。
-v2.23.2.8（Android候选）- 接入PR #2，修复法律风险扫描失效后持续忙碌与无法重试的问题；使用原正式签名生成release APK，手机验收待完成，Windows保持1.1.0.6。详见[本版说明](release_notes_v2.23.2.8.md)。
+v0.0.1 - 整理项目文档目录，增加平台分类、索引与本机归档忽略规则。
+
+## 目录导航
+
+| 内容 | 位置 |
+| --- | --- |
+| Android 与 Windows 更新说明 | [全部版本说明](documents/releases/README.md) |
+| 使用说明、验收与性能记录 | [文档索引](documents/README.md) |
+| Rust 源码与 Android 源码生成器 | `native/gridtimer_native/` |
+| Android 工程与必要资源 | `app/` |
+| 构建、发布及验证工具 | [工具索引](tools/README.md) |
+| 公开发布元数据 | [正式发布清单](release_artifacts/current/release_manifest.json) |
+| 本机安装包交付 | 原电脑的项目根目录、`APK/` 和正式构建输出 |
+| 本机历史安装包与私人归档 | `old_apks/`、`old_exes/`、`local_archive/`，不随源码上传 |
+
+此仓库保留完整应用源码、必要资源和可共享说明。安装文件、原始设备证据及私人材料按既有规则保留在本机；历史记录中的本机路径用文字标注。版本、功能、界面和数据格式保持原状。
+
+v2.23.2.11（Android候选）- 风控按总览、核对、预测分区，长清单在独立详情中处理；保留原核对、预测和法律发送确认，沿用正式签名与原APK流程，Windows保持1.1.0.7。详见[本版说明](documents/releases/android/release_notes_v2.23.2.11.md)。
+v2.23.2.10（Android已验收候选）- 精简知识列表顶部，修复文档换行后的光标与键盘避让；沿用正式签名和原APK流程，Windows保持1.1.0.7；用户已确认真机测试通过并授权合并PR #4与#5。详见[本版说明](documents/releases/android/release_notes_v2.23.2.10.md)。
+v1.1.0.7（Windows正式版）- 补齐直接问 AI、知识库问答与法律资料发送确认，改进离线 Markdown 和公式阅读；正式程序已在本机发布，公开仓库同步源码、发布元数据与验收范围。详见[本版说明](documents/releases/windows/release_notes_windows_v1.1.0.7.md)。
+v2.23.2.9（Android候选）- 接入PR #3，让法律分析入口与主操作常显，增加与扫描和AI配置绑定的一次性发送确认；沿用正式签名与原APK交付位置，手机及真实模型验收待完成，Windows保持1.1.0.6。详见[本版说明](documents/releases/android/release_notes_v2.23.2.9.md)。
+v2.23.2.8（Android候选）- 接入PR #2，修复法律风险扫描失效后持续忙碌与无法重试的问题；使用原正式签名生成release APK，手机验收待完成，Windows保持1.1.0.6。详见[本版说明](documents/releases/android/release_notes_v2.23.2.8.md)。
 v2.23.2.7（Android）- 修复回答本地排版加载失败，补齐知识页公式预览与原文切换；已通过连接手机的真实 DeepSeek 调用、公式画面和原文完整性检查，正式签名 APK 已发布，Windows 保持 1.1.0.6。
 v2.23.2.6（Android）- AI 回答支持离线公式和 Markdown 排版，新增复制原文，保存后的知识页可预览并编辑原文；正式签名 APK 已发布，Windows 保持 1.1.0.6。本轮未进行真机复测。
 v2.23.2.5（Android）- 新增默认的直接问 AI，仅发送问题；知识库模式继续核对来源，修复模式切换和取消后的状态，明确上次同步状态与 AI 独立接口；正式签名 APK 已发布，Windows 保持 1.1.0.6。本轮未进行真机复测。
@@ -75,7 +92,7 @@ v1.0.1（Windows）- Windows 从 1.0.1 开始独立编号，客户端、同步�
 
 ## 当前版本与编号规则
 
-当前正式 Android 版本为 **2.23.2.7**，versionCode 为 **22276**，安装包为 tenfold_v2.23.2.7.apk（签名安装文件仅在本地保留）。详见 [Android 发布说明](release_notes_v2.23.2.7.md)。本版已在 Vivo V2352A 真机核验普通 Markdown、保存后的知识页预览、上标与公式、原文比对和重新打开；最终 APK 的实时 DeepSeek 提问及官方用量增长见 真机验收（原始验收记录仅在本地保留）。
+当前正式 Android 版本为 **2.23.2.7**，versionCode 为 **22276**，安装包为 tenfold_v2.23.2.7.apk（签名安装文件仅在本地保留）。详见 [Android 发布说明](documents/releases/android/release_notes_v2.23.2.7.md)。本版已在 Vivo V2352A 真机核验普通 Markdown、保存后的知识页预览、上标与公式、原文比对和重新打开；最终 APK 的实时 DeepSeek 提问及官方用量增长见 真机验收（原始验收记录仅在本地保留）。
 
 此前 **2.23.2.3** 于 2026-10-03 完成 DeepSeek 真机知识问答验收（原始验收记录仅在本地保留）：实际随机资料问答、官方用量增量、回答保存及重新打开均已核对。仅发送一个合成知识来源，未读取密钥或改动 VPN。该记录属于 2.23.2.3，不替代后续版本的真机复测。
 
@@ -83,7 +100,7 @@ v1.0.1（Windows）- Windows 从 1.0.1 开始独立编号，客户端、同步�
 
 后续每次发布只递增 **0.0.0.1**，固定前三段、递增第四段；已有三段版本的第四段按 0 处理。Windows **1.1** 是用户指定的例外，当前版本 **1.1.0.7**，下一版为 **1.1.0.8**；Android **2.23.2** 为用户指定的编号，当前为 **2.23.2.7**，下一版为 **2.23.2.8**。第四段持续递增，不进位到第三段；现有正式版本和历史记录保持原号。
 
-实际安装版本以 `release_artifacts/current/release_manifest.json` 为准，候选构建不代表正式发布。应用版本号独立于同步协议和数据格式；重新编号保留账户、数据目录、手机配对及登录自启动任务。详见 [Windows 1.1.0.7 发布说明与验收范围](release_notes_windows_v1.1.0.7.md)、[Windows 1.1.0.6 发布说明与实际交互验收](release_notes_windows_v1.1.0.6.md)、[Windows 1.1.0.5 发布说明](release_notes_windows_v1.1.0.5.md)、[此前性能发布验收](documents/windows_deep_optimization_v1.1.0.4.md) 和 [此前性能与边界验证](documents/windows_deep_optimization_v1.1.0.3.md)。
+实际安装版本以 `release_artifacts/current/release_manifest.json` 为准，候选构建不代表正式发布。应用版本号独立于同步协议和数据格式；重新编号保留账户、数据目录、手机配对及登录自启动任务。详见 [Windows 1.1.0.7 发布说明与验收范围](documents/releases/windows/release_notes_windows_v1.1.0.7.md)、[Windows 1.1.0.6 发布说明与实际交互验收](documents/releases/windows/release_notes_windows_v1.1.0.6.md)、[Windows 1.1.0.5 发布说明](documents/releases/windows/release_notes_windows_v1.1.0.5.md)、[此前性能发布验收](documents/windows/windows_deep_optimization_v1.1.0.4.md) 和 [此前性能与边界验证](documents/windows/windows_deep_optimization_v1.1.0.3.md)。
 
 ## 历史更新记录
 
@@ -167,7 +184,7 @@ The Android app is generated from the Rust source tree, uses native Rust logic t
 - `native/gridtimer_native/` contains the Rust crate, JNI bridge, generated Android source emitters, desktop client, sync server, launcher, packaging helpers, and source audit tools.
 - `release_artifacts/current/` publishes the release manifest and the Cloudflared runtime dependency. Signed application installers remain local pending a decision about embedded workstation build paths. `release_artifacts/desktop_entry/` publishes the icon generator and icon assets; all stable launcher sources are included under `native/`.
 - `old_apks/` and `old_exes/` are local archives; they are not included in this baseline.
-- `documents/` contains release acceptance and sync recovery evidence.
+- `documents/` contains indexed release, Android, Windows, sync, acceptance, and design documents. Private historical materials remain in ignored `local_archive/` on the original workstation.
 
 ## Build requirements
 
@@ -230,4 +247,4 @@ For a fresh checkout, configure the local SDK and signing files, build the signe
 
 ## Windows 1.1.0.7 source synchronization
 
-The Windows 1.1.0.7 source and shared release metadata match the locally published build. See [release verification and limits](documents/windows_release_verification_v1.1.0.7.md). Signed application installers remain local because their compiled dependency metadata contains workstation-specific user paths; no private signing material or new personal files are published. Android application sources retain the already merged PR #2 and PR #3 changes; this synchronization does not rebuild or promote an Android APK.
+The Windows 1.1.0.7 source and shared release metadata match the locally published build. See [release verification and limits](documents/windows/windows_release_verification_v1.1.0.7.md). Signed application installers remain local because their compiled dependency metadata contains workstation-specific user paths; no private signing material or new personal files are published. Android application sources retain the already merged PR #2 and PR #3 changes; this synchronization does not rebuild or promote an Android APK.
