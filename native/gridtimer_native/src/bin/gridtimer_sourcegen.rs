@@ -16,8 +16,6 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-#[path = "../sourcegen/android_finance_workspace.rs"]
-mod android_finance_workspace;
 #[path = "../sourcegen/android_ai_answer_ui.rs"]
 mod android_ai_answer_ui;
 #[path = "../sourcegen/android_ai_workflow.rs"]
@@ -30,6 +28,8 @@ mod android_canvas_ui;
 mod android_device_timer_sync;
 #[path = "../sourcegen/android_document_caret.rs"]
 mod android_document_caret;
+#[path = "../sourcegen/android_finance_workspace.rs"]
+mod android_finance_workspace;
 #[path = "../sourcegen/android_history_storage.rs"]
 mod android_history_storage;
 #[path = "../sourcegen/android_jvm_test_sources.rs"]
