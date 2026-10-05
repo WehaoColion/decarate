@@ -26,10 +26,10 @@ mod android_backup_availability;
 mod android_canvas_ui;
 #[path = "../sourcegen/android_device_timer_sync.rs"]
 mod android_device_timer_sync;
-#[path = "../sourcegen/android_document_caret.rs"]
-mod android_document_caret;
 #[path = "../sourcegen/android_document_block_alignment.rs"]
 mod android_document_block_alignment;
+#[path = "../sourcegen/android_document_caret.rs"]
+mod android_document_caret;
 #[path = "../sourcegen/android_document_markdown.rs"]
 mod android_document_markdown;
 #[path = "../sourcegen/android_finance_workspace.rs"]

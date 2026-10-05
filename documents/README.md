@@ -1,10 +1,12 @@
-v0.0.2 - 纳入文档预览段落边界验收，保留现有分类导航。
+v0.0.3 - 纳入文档文本块居中和光标坐标验收，保留现有分类导航。
 
 # 项目文档
 
 [全部版本更新说明](releases/README.md)
 
 ## Android 验收与性能记录
+
+- [文档文本块居中与光标避让验收](android/document_block_alignment_acceptance.md)
 
 - [文档预览段落边界验收](android/document_markdown_paragraphs.md)
 

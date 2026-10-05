@@ -1,3 +1,4 @@
+# v0.0.29 - Include the document text alignment transform in formal Rust formatting.
 # v0.0.28 - Gate document Markdown block projection and executed separator mutations.
 # v0.0.27 - Freeze finance navigation mutation and gate its real generated integration.
 # v0.0.26 - Freeze document caret and header verification and gate their generated integration.
@@ -145,6 +146,7 @@ try {
     if([version]$taskVersion -ge [version]'2.23.2.9'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_legal_workflow.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.11'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_finance_workspace.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.12'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_document_markdown.rs'}
+    if([version]$taskVersion -ge [version]'2.23.2.13'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_document_block_alignment.rs'}
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
