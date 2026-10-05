@@ -1,3 +1,4 @@
+# v0.0.26 - Freeze document caret and header verification and gate their generated integration.
 # v0.0.25 - Freeze the legal workflow verifier and require generated confirmation boundaries.
 # v0.0.24 - Require legal scan request settlement and retry business acceptance.
 # v0.0.23 - Require current-document loading and parenthesized formula business acceptance.
@@ -40,6 +41,7 @@ function Write-TaskJson([string]$Name, $Value) {
 function Get-TaskInputs {
     $paths = @('app\build.gradle','gradle.properties','settings.gradle','native\gridtimer_native\Cargo.toml','native\gridtimer_native\Cargo.lock','tools\android.ps1','tools\publish_android_note.ps1','tools\verify_android_math_mutation.ps1','tools\verify_android_markdown_loading_mutation.ps1','tools\verify_legal_lifecycle_mutation.ps1') | ForEach-Object { Join-Path $taskRoot $_ }
     if([version]$taskVersion -ge [version]'2.23.2.9'){$paths += Join-Path $taskRoot 'tools\verify_legal_workflow_mutation.ps1'}
+    if([version]$taskVersion -ge [version]'2.23.2.10'){$paths += @('tools\verify_document_caret_mutation.ps1','tools\verify_knowledge_header_mutation.ps1') | ForEach-Object {Join-Path $taskRoot $_}}
     # Cargo gates timer_windows_client behind the desktop feature. Its private
     # desktop/ modules are not inputs to the Android library, generator or tests.
     # Shared library modules (including desktop_*.rs) remain in the snapshot.
@@ -125,6 +127,7 @@ try {
     $formatPaths += @('src\sourcegen\android_knowledge_compat.rs','src\knowledge.rs','src\knowledge_sync.rs','src\knowledge_references.rs','src\knowledge_app_data.rs','src\knowledge_exchange.rs') | ForEach-Object { Join-Path $taskCrate $_ }
     $formatPaths += @('src\android_canvas.rs','src\android_canvas_tests.rs','src\sourcegen\android_canvas_ui.rs') | ForEach-Object { Join-Path $taskCrate $_ }
     $formatPaths += Join-Path $taskCrate 'src\sourcegen\android_note_list_performance.rs'
+    $formatPaths += @('src\sourcegen\android_knowledge_header.rs','src\sourcegen\android_document_caret.rs') | ForEach-Object {Join-Path $taskCrate $_}
     $formatPaths += Join-Path $taskCrate 'src\sourcegen\android_note_collection_recovery.rs'
     $formatPaths += Join-Path $taskCrate 'src\sourcegen\android_knowledge_filters.rs'
     $formatPaths += Join-Path $taskCrate 'src\sourcegen\android_ui_localization.rs'
@@ -210,6 +213,7 @@ try {
         @{name='LegalSendReadyTest';package='ui';source='legal_risk_ui_source.rs'}
     )
     if([version]$taskVersion -ge [version]'2.23.2.9'){$taskWorkflowSuites += @{name='LegalAnalysisWorkflowTest';package='ui';source='android_legal_workflow.rs'}}
+    if([version]$taskVersion -ge [version]'2.23.2.10'){$taskWorkflowSuites += @{name='DocumentCaretPolicyTest';package='ui';source='android_document_caret.rs'}}
     foreach ($suite in $taskWorkflowSuites) {
         $suiteSource = Get-Content -LiteralPath (Join-Path $taskCrate ('src\sourcegen\'+$suite.source)) -Raw
         $suiteBody = [regex]::Match($suiteSource, '(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;')
@@ -254,6 +258,20 @@ try {
         $taskLegalWorkflowIntegration=[ordered]@{passed=$true;finalTransformConnected=$true;isolatedEntryPresent=$true;primaryActionPresent=$true;explicitConfirmationPresent=$true;sendBoundaryPresent=$true;modelRequestSites=1;businessTests=$taskAiWorkflowCounts.LegalAnalysisWorkflowTest;hostOnly=$true;deviceVerified=$false;generatedFiles=@($gridRelative,$legalRelative | ForEach-Object {[ordered]@{path=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $taskRoot $_)).Hash.ToLowerInvariant()}})}
         Write-TaskJson 'legal_workflow_generated_acceptance.json' $taskLegalWorkflowIntegration
     }
+    $taskDocumentIntegration = $null
+    if([version]$taskVersion -ge [version]'2.23.2.10'){
+        $generatedRoot = Join-Path $taskRoot 'app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui'
+        $editor = Get-Content -LiteralPath (Join-Path $generatedRoot 'NoteDocumentEditor.kt') -Raw
+        $header = Get-Content -LiteralPath (Join-Path $generatedRoot 'NoteStudioSheet.kt') -Raw
+        $policy = Get-Content -LiteralPath (Join-Path $generatedRoot 'DocumentCaretPolicy.kt') -Raw
+        $visibility = Get-Content -LiteralPath (Join-Path $generatedRoot 'DocumentCaretVisibility.kt') -Raw
+        if(!$editor.Contains('state = editorListState') -or !$editor.Contains('onTextLayout = { caretVisibility.layout = it }') -or !$editor.Contains('caretVisibility.focused = focusState.isFocused') -or !$editor.Contains('bringIntoViewRequester(caretVisibility.requester)') -or !$visibility.Contains('documentCaretOffset(') -or !$visibility.Contains('documentCaretRevealBounds(')){throw 'Caret policy is not connected to the generated editor and real layout callbacks'}
+        if(!$editor.Contains('remember(focusWorkspaceKey, note.id, block.id)') -or !$editor.Contains('LaunchedEffect(focusWorkspaceKey, note.id, block.id, requestFocus)')){throw 'Deferred document focus must be cancelled when workspace or note changes'}
+        if(([regex]::Matches($header,'testTag\("knowledge_compact_header"\)')).Count -ne 1 -or $header.Contains('FlowusWorkspaceHeader(')){throw 'Actual knowledge header transformation is missing or duplicated'}
+        foreach($tag in @('knowledge_header_create','knowledge_header_trash','knowledge_header_folders')){if(!$header.Contains('testTag("'+$tag+'")')){throw 'A generated knowledge header action was lost'}}
+        $taskDocumentIntegration=[ordered]@{passed=$true;policyConnectedToRealEditor=$true;workspaceAndNoteFocusLifetime=$true;compactHeaderPresent=$true;originalHeaderActionsPresent=$true;businessTests=$taskAiWorkflowCounts.DocumentCaretPolicyTest;hostOnly=$true;deviceVerified=$false;generatedFiles=@('NoteDocumentEditor.kt','NoteStudioSheet.kt','DocumentCaretPolicy.kt','DocumentCaretVisibility.kt' | ForEach-Object {[ordered]@{path=('app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/'+$_);sha256=(Get-FileHash -LiteralPath (Join-Path $generatedRoot $_)).Hash.ToLowerInvariant()}})}
+        Write-TaskJson 'document_generated_acceptance.json' $taskDocumentIntegration
+    }
     Copy-Item -LiteralPath (Join-Path $taskRoot 'app\build\reports\lint-results-release.xml') -Destination (Join-Path $taskEvidence 'lint-results-release.xml') -Force
     $apk = Join-Path $taskRoot "app\build\outputs\apk\release\tenfold_v$taskVersion.apk"
     $result = [ordered]@{schemaVersion=1;version=$taskVersion;mode=$Mode;passed=$true;noDeviceOperations=$true;sourceSnapshotSha256=$before.sha256;editingTests=$expectedTests;nativeArgumentEncoding=$taskNativeEncoding;completed=(Get-Date).ToUniversalTime().ToString('o');checks=@('rust_format','native_tests','sourcegen_tests','packager_tests','android_source_audit','android_jvm_tests','android_lint')}
@@ -268,6 +286,7 @@ try {
     $result['aiConnectionTests'] = $taskAiExpected
     $result['aiWorkflowTests'] = $taskAiWorkflowCounts
     if($taskLegalWorkflowIntegration){$result['legalWorkflowIntegration']=$taskLegalWorkflowIntegration}
+    if($taskDocumentIntegration){$result['documentIntegration']=$taskDocumentIntegration}
     $result['mathNativeTests'] = $taskMathTests.Count
     $result['mathNativeTestNames'] = $taskMathTests
     if($Mode -eq 'build'){

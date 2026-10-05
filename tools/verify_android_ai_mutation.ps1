@@ -35,7 +35,7 @@ if($VerifyExistingFailureIdentity){
     return
 }
 $original=[IO.File]::ReadAllBytes($sourcePath)
-$originalText=[Text.Encoding]::UTF8.GetString($original)
+$originalText=[Text.Encoding]::UTF8.GetString($original).Replace("`r`n","`n")
 $before=(Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
 $env:RUSTUP_TOOLCHAIN='stable-x86_64-pc-windows-msvc'
 $rustc=(& rustup which rustc).Trim()

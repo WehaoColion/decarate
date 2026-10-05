@@ -26,6 +26,8 @@ mod android_backup_availability;
 mod android_canvas_ui;
 #[path = "../sourcegen/android_device_timer_sync.rs"]
 mod android_device_timer_sync;
+#[path = "../sourcegen/android_document_caret.rs"]
+mod android_document_caret;
 #[path = "../sourcegen/android_history_storage.rs"]
 mod android_history_storage;
 #[path = "../sourcegen/android_jvm_test_sources.rs"]
@@ -135,6 +137,11 @@ fn run() -> io::Result<()> {
     if let Some(unit_test_output_root) = unit_test_output_root {
         write_source(
             &unit_test_output_root,
+            android_document_caret::TEST_PATH,
+            android_document_caret::TEST_CONTENTS,
+        )?;
+        write_source(
+            &unit_test_output_root,
             android_ai_answer_ui::TEST_PATH,
             android_ai_answer_ui::TEST_CONTENTS,
         )?;
@@ -199,6 +206,17 @@ fn run() -> io::Result<()> {
             legal_risk_ui_source::TEST_CONTENTS,
         )?;
     }
+
+    write_source(
+        &output_root,
+        android_document_caret::POLICY_PATH,
+        android_document_caret::POLICY_CONTENTS,
+    )?;
+    write_source(
+        &output_root,
+        android_document_caret::UI_PATH,
+        android_document_caret::UI_CONTENTS,
+    )?;
 
     for source in kotlin_sources::SOURCES {
         let rendered = render_source(
@@ -526,6 +544,8 @@ fn write_source(output_root: &Path, relative_path: &str, contents: &str) -> io::
 
     // Apply the legal workflow last, including the separately emitted screen and tests.
     let contents = android_legal_workflow::render(relative_path, contents)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let contents = android_document_caret::render(relative_path, &contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = contents
         .replace("十倍率", "tenfold")
