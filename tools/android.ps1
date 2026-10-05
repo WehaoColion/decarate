@@ -1,3 +1,4 @@
+# v0.0.27 - Freeze finance navigation mutation and gate its real generated integration.
 # v0.0.26 - Freeze document caret and header verification and gate their generated integration.
 # v0.0.25 - Freeze the legal workflow verifier and require generated confirmation boundaries.
 # v0.0.24 - Require legal scan request settlement and retry business acceptance.
@@ -42,6 +43,7 @@ function Get-TaskInputs {
     $paths = @('app\build.gradle','gradle.properties','settings.gradle','native\gridtimer_native\Cargo.toml','native\gridtimer_native\Cargo.lock','tools\android.ps1','tools\publish_android_note.ps1','tools\verify_android_math_mutation.ps1','tools\verify_android_markdown_loading_mutation.ps1','tools\verify_legal_lifecycle_mutation.ps1') | ForEach-Object { Join-Path $taskRoot $_ }
     if([version]$taskVersion -ge [version]'2.23.2.9'){$paths += Join-Path $taskRoot 'tools\verify_legal_workflow_mutation.ps1'}
     if([version]$taskVersion -ge [version]'2.23.2.10'){$paths += @('tools\verify_document_caret_mutation.ps1','tools\verify_knowledge_header_mutation.ps1') | ForEach-Object {Join-Path $taskRoot $_}}
+    if([version]$taskVersion -ge [version]'2.23.2.11'){$paths += Join-Path $taskRoot 'tools\verify_finance_workspace_mutation.ps1'}
     # Cargo gates timer_windows_client behind the desktop feature. Its private
     # desktop/ modules are not inputs to the Android library, generator or tests.
     # Shared library modules (including desktop_*.rs) remain in the snapshot.
@@ -139,6 +141,7 @@ try {
     $formatPaths += @('src\android_answer_render.rs','src\sourcegen\android_ai_answer_ui.rs') | ForEach-Object { Join-Path $taskCrate $_ }
     $formatPaths += Join-Path $taskCrate 'src\sourcegen\legal_risk_ui_source.rs'
     if([version]$taskVersion -ge [version]'2.23.2.9'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_legal_workflow.rs'}
+    if([version]$taskVersion -ge [version]'2.23.2.11'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_finance_workspace.rs'}
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
@@ -272,6 +275,37 @@ try {
         $taskDocumentIntegration=[ordered]@{passed=$true;policyConnectedToRealEditor=$true;workspaceAndNoteFocusLifetime=$true;compactHeaderPresent=$true;originalHeaderActionsPresent=$true;businessTests=$taskAiWorkflowCounts.DocumentCaretPolicyTest;hostOnly=$true;deviceVerified=$false;generatedFiles=@('NoteDocumentEditor.kt','NoteStudioSheet.kt','DocumentCaretPolicy.kt','DocumentCaretVisibility.kt' | ForEach-Object {[ordered]@{path=('app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/'+$_);sha256=(Get-FileHash -LiteralPath (Join-Path $generatedRoot $_)).Hash.ToLowerInvariant()}})}
         Write-TaskJson 'document_generated_acceptance.json' $taskDocumentIntegration
     }
+    $taskFinanceIntegration = $null
+    if([version]$taskVersion -ge [version]'2.23.2.11'){
+        $financeSourcePath='native/gridtimer_native/src/sourcegen/android_finance_workspace.rs'
+        $financeVerifierPath='tools/verify_finance_workspace_mutation.ps1'
+        foreach($inputPath in @($financeSourcePath,$financeVerifierPath)){
+            if(@($before.files | Where-Object path -eq $inputPath).Count -ne 1){throw ('Finance workspace input was not frozen: '+$inputPath)}
+        }
+        $financeSource=Get-Content -LiteralPath (Join-Path $taskRoot $financeSourcePath) -Raw
+        $financePolicyLiteral=[regex]::Match($financeSource,'(?s)pub const POLICY:\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+        $financeTestLiteral=[regex]::Match($financeSource,'(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+        if(!$financePolicyLiteral.Success -or !$financeTestLiteral.Success){throw 'Rust-owned finance policy or tests are missing'}
+        $financeTestNames=@([regex]::Matches($financeTestLiteral.Groups['body'].Value,'@Test\s+fun\s+(\w+)\s*\(') | ForEach-Object {$_.Groups[1].Value})
+        $financeRequiredTests=@('newMonthClosesOldDetailAndReturnsToOverview','newWorkspaceDoesNotInheritFinancialDetail','switchingTaskClearsThePreviousDialog','reviewCountUsesAllFourExplicitFlags','alertPreviewIsBoundedWithoutChangingTheTotal')
+        if($financeTestNames.Count -ne 5 -or @($financeTestNames | Sort-Object -Unique).Count -ne 5 -or @($financeRequiredTests | Where-Object {$_ -notin $financeTestNames}).Count){throw 'Finance workspace suite must contain the five distinct state and boundary tests'}
+        $financeJunitPath=Join-Path $taskRoot 'app/build/test-results/testReleaseUnitTest/TEST-com.ofairyo.gridtimer.ui.FinanceWorkspacePolicyTest.xml'
+        [xml]$financeJunit=Get-Content -LiteralPath $financeJunitPath -Raw
+        if([int]$financeJunit.testsuite.tests -ne 5 -or [int]$financeJunit.testsuite.failures -ne 0 -or [int]$financeJunit.testsuite.errors -ne 0 -or [int]$financeJunit.testsuite.skipped -ne 0){throw 'Formal finance workspace state tests are incomplete or failed'}
+        foreach($testName in $financeRequiredTests){if(@($financeJunit.testsuite.testcase | Where-Object name -eq $testName).Count -ne 1){throw ('Formal finance workspace test is absent: '+$testName)}}
+        Copy-Item -LiteralPath $financeJunitPath -Destination (Join-Path $taskEvidence 'FinanceWorkspacePolicyTest.xml') -Force
+        $financeGenerator=Get-Content -LiteralPath (Join-Path $taskCrate 'src/bin/gridtimer_sourcegen.rs') -Raw
+        if(!$financeGenerator.Contains('android_finance_workspace::render(relative_path, &contents)') -or !$financeGenerator.Contains('android_finance_workspace::TEST_PATH') -or !$financeGenerator.Contains('android_finance_workspace::TEST_CONTENTS')){throw 'Finance transform or domain test source is not connected to final Android generation'}
+        $financePanelPath='app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/FinanceRiskV2Panel.kt'
+        $financeGridPath='app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/GridTimerScreen.kt'
+        $financePanel=(Get-Content -LiteralPath (Join-Path $taskRoot $financePanelPath) -Raw).Replace("`r`n","`n")
+        $financeGrid=Get-Content -LiteralPath (Join-Path $taskRoot $financeGridPath) -Raw
+        if(!$financePanel.Contains($financePolicyLiteral.Groups['body'].Value.Replace("`r`n","`n")) -or !$financePanel.Contains('remember(workspaceKey, monthKey)') -or !$financePanel.Contains('savedRoute.forScope(workspaceKey, monthKey)') -or !$financePanel.Contains('FinanceWorkspaceDetailDialog(openedDetail.title')){throw 'The tested finance policy or scope lifetime is not connected to the generated panel'}
+        foreach($detail in @('FACTS','FORECAST','VERIFY','RECURRING','ALERTS')){if(!$financePanel.Contains('FinanceWorkspaceDetail.'+$detail+' -> {')){throw ('Generated finance detail is missing: '+$detail)}}
+        if(!$financeGrid.Contains('testTag("legal_open_analysis")') -or !$financeGrid.Contains('onClick = { showLegalRisk = true }') -or !$financeGrid.Contains('LegalRiskScreen(')){throw 'Finance navigation lost the actual legal workflow entry'}
+        $taskFinanceIntegration=[ordered]@{passed=$true;finalTransformConnected=$true;policyConnectedToRealPanel=$true;workspaceAndMonthLifetime=$true;allDetailSectionsPresent=$true;legalWorkflowEntryPreserved=$true;businessTests=5;testNames=$financeTestNames;hostOnly=$true;deviceVerified=$false;generatedFiles=@($financePanelPath,$financeGridPath | ForEach-Object {[ordered]@{path=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $taskRoot $_)).Hash.ToLowerInvariant()}})}
+        Write-TaskJson 'finance_workspace_generated_acceptance.json' $taskFinanceIntegration
+    }
     Copy-Item -LiteralPath (Join-Path $taskRoot 'app\build\reports\lint-results-release.xml') -Destination (Join-Path $taskEvidence 'lint-results-release.xml') -Force
     $apk = Join-Path $taskRoot "app\build\outputs\apk\release\tenfold_v$taskVersion.apk"
     $result = [ordered]@{schemaVersion=1;version=$taskVersion;mode=$Mode;passed=$true;noDeviceOperations=$true;sourceSnapshotSha256=$before.sha256;editingTests=$expectedTests;nativeArgumentEncoding=$taskNativeEncoding;completed=(Get-Date).ToUniversalTime().ToString('o');checks=@('rust_format','native_tests','sourcegen_tests','packager_tests','android_source_audit','android_jvm_tests','android_lint')}
@@ -287,6 +321,7 @@ try {
     $result['aiWorkflowTests'] = $taskAiWorkflowCounts
     if($taskLegalWorkflowIntegration){$result['legalWorkflowIntegration']=$taskLegalWorkflowIntegration}
     if($taskDocumentIntegration){$result['documentIntegration']=$taskDocumentIntegration}
+    if($taskFinanceIntegration){$result['financeWorkspaceTests']=5;$result['financeWorkspaceIntegration']=$taskFinanceIntegration}
     $result['mathNativeTests'] = $taskMathTests.Count
     $result['mathNativeTestNames'] = $taskMathTests
     if($Mode -eq 'build'){

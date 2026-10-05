@@ -1,3 +1,4 @@
+// v2.23.2.11 - Organize finance overview, review and forecast details.
 // v2.23.2.10 - Integrate compact knowledge header and caret visibility.
 // v2.23.2.9 - Expose legal analysis actions and bind explicit send consent.
 // v2.23.2.8 - Recover invalidated Android legal analysis and preparation requests.
@@ -139,8 +140,8 @@ android {
         applicationId 'com.ofairyo.gridtimer'
         minSdk 26
         targetSdk 34
-        versionCode 22279
-        versionName '2.23.2.10'
+        versionCode 22280
+        versionName '2.23.2.11'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         manifestPlaceholders.xiaomiAppId = ''
         manifestPlaceholders.xiaomiBuildTypeDebug = 'true'
