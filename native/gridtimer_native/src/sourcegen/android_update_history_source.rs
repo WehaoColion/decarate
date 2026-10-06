@@ -1,3 +1,4 @@
+// v2.23.2.15 - Record local knowledge navigation with minute-level update time.
 // v2.23.2.14 - Record edit-first document entry and explicit temporary preview.
 // v2.23.2.13 - Record centered document text and matching caret relocation coordinates.
 // v2.23.2.12 - Record document preview paragraph preservation and Markdown boundary repairs.
@@ -17,7 +18,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.14";
+pub const LATEST_VERSION: &str = "2.23.2.15";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -47,6 +48,28 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.15",
+        updatedAt = "2026-10-06 11:53",
+        summary = "知识模块增加关联与检索，支持本机双链、反链和标签查找",
+        sections = listOf(
+            AndroidUpdateSection("入口与查找", listOf(
+                "知识集合页新增关联与检索入口，打开独立工作台。可用多个词查找标题、已扫描的正文与资料库，优先显示标题匹配结果。结果每次显示40项，保留总数和继续显示入口。",
+                "支持标签与层级标签筛选、未见双链和待解析引用查看。只在工作台打开时于本机后台整理，不调用AI，也不写入或改动原文档。"
+            )),
+            AndroidUpdateSection("文档之间的关联", listOf(
+                "识别常见双链、显示名、标题或块定位标记，以及简单Markdown文档链接。可查看本页引用、引用本页的文档和待解析目标；同名目标展示候选，不自动选择第一篇。",
+                "可主动复制双链，遇到重名或保留符号时避免生成错误目标。提供按需未链接提及与ATX标题大纲。定位标记目前用于展示，打开的是所属文档；没有自动改名维护链接、图谱或行内补全。"
+            )),
+            AndroidUpdateSection("隐私与覆盖范围", listOf(
+                "加密文档、已删除记录和便签不纳入索引。临时解锁但仍带加密信封的文档也排除。结构化、富文本或超出扫描容量的正文会明确提示未扫描，不把没有识别到关联说成没有关联。",
+                "文档内容、资料库或工作区变化时取消旧整理任务并拒绝过期结果。打开文档继续走现有编辑和保存路径，保留默认编辑、文本居中、公式预览、键盘避让、撤销、加密及同步。"
+            )),
+            AndroidUpdateSection("版本与更新记录", listOf(
+                "版本2.23.2.15，内部版本代码22284，沿用原包名和正式签名。更新记录继续保留历版，可折叠、点按复制或复制整版，时间按北京时间精确到分钟。Windows保持1.1.0.7。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.14",
         updatedAt = "2026-10-06 10:43",

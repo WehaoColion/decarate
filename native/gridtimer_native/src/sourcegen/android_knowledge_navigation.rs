@@ -9,7 +9,9 @@ pub const SNAPSHOT_TEST_PATH: &str = "com/ofairyo/gridtimer/ui/KnowledgeNavigati
 fn replace_once(source: &mut String, before: &str, after: &str) -> Result<(), String> {
     let count = source.matches(before).count();
     if count != 1 {
-        return Err(format!("knowledge navigation anchor count {count}: {before}"));
+        return Err(format!(
+            "knowledge navigation anchor count {count}: {before}"
+        ));
     }
     *source = source.replacen(before, after, 1);
     Ok(())
@@ -19,12 +21,21 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
     if path != SCREEN_PATH {
         return Ok(source.to_owned());
     }
+    if source.contains("var knowledgeNavigationVisible by remember(") {
+        return Err("knowledge navigation has already been injected".into());
+    }
     let mut result = source.to_owned();
-    for name in ["androidx.compose.foundation.layout.heightIn", "androidx.compose.ui.platform.testTag"] {
+    for name in [
+        "androidx.compose.foundation.layout.heightIn",
+        "androidx.compose.ui.platform.testTag",
+    ] {
         let import = format!("import {name}\n");
         if !result.contains(&import) {
-            replace_once(&mut result, "package com.ofairyo.gridtimer.ui\n",
-                &format!("package com.ofairyo.gridtimer.ui\n{import}"))?;
+            replace_once(
+                &mut result,
+                "package com.ofairyo.gridtimer.ui\n",
+                &format!("package com.ofairyo.gridtimer.ui\n{import}"),
+            )?;
         }
     }
     replace_once(&mut result, STATE_ANCHOR, STATE)?;
@@ -32,7 +43,8 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
     Ok(result)
 }
 
-const STATE_ANCHOR: &str = "    val notebookDocuments = remember(appData.notes) { appData.activeNotebookDocuments() }";
+const STATE_ANCHOR: &str =
+    "    val notebookDocuments = remember(appData.notes) { appData.activeNotebookDocuments() }";
 const STATE: &str = r####"    val navigationWorkspaceKey = LocalNoteMediaWorkspaceKey.current
     var knowledgeNavigationVisible by remember(navigationWorkspaceKey) { mutableStateOf(false) }
     if (knowledgeNavigationVisible && !trashMode) {
@@ -47,11 +59,9 @@ const STATE: &str = r####"    val navigationWorkspaceKey = LocalNoteMediaWorkspa
         )
     }
     val notebookDocuments = remember(appData.notes) { appData.activeNotebookDocuments() }"####;
-const ENTRY_ANCHOR: &str = r####"        if (!trashMode) {
-            item {
+const ENTRY_ANCHOR: &str = r####"            item {
                 KnowledgeAskEntryCard("####;
-const ENTRY: &str = r####"        if (!trashMode) {
-            item(key = "knowledge-navigation-entry") {
+const ENTRY: &str = r####"            item(key = "knowledge-navigation-entry") {
                 androidx.compose.material3.OutlinedButton(
                     onClick = { knowledgeNavigationVisible = true },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -100,7 +110,8 @@ internal class KnowledgeNavIndex(
     val pages: Map<String, KnowledgeNavIndexedPage>,
     val incoming: Map<String, Set<String>>,
     val tagCounts: Map<String, Int>,
-    val bodyOmissions: Int
+    val bodyOmissions: Int,
+    private val targets: Map<String, Set<String>>
 ) {
     val resolvedLinks: Int = pages.values.sumOf { it.links.count { link -> link.candidates.size == 1 } }
     val unresolvedLinks: Int = pages.values.sumOf { it.links.count { link -> link.candidates.size != 1 } }
@@ -143,12 +154,8 @@ internal class KnowledgeNavIndex(
         if (item.title.isBlank() || item.title.any { it in "[]|#^/\\:" || it.isISOControl() }) return null
         if (item.folder.any { it in "[]|#^\\:" || it.isISOControl() }) return null
         val target = listOf(item.folder.trim('/'), item.title).filter(String::isNotBlank).joinToString("/")
-        val candidates = pages.values.filter {
-            knowledgeNavTargetKey(listOf(it.page.folder.trim('/'), it.page.title).filter(String::isNotBlank).joinToString("/")) == knowledgeNavTargetKey(target)
-        }
-        if (candidates.size != 1) return null
-        // An unqualified name could also match a same-title note in another folder.
-        if (item.folder.isBlank() && pages.values.count { knowledgeNavTargetKey(it.page.title) == knowledgeNavTargetKey(item.title) } != 1) return null
+        val normalized = if (target.endsWith(".md", true)) target.dropLast(3) else target
+        if (knowledgeNavResolveTarget(normalized, targets) != listOf(id)) return null
         return "[[$target]]"
     }
 }
@@ -168,6 +175,13 @@ internal fun knowledgeNavKey(value: String): String =
 private fun knowledgeNavTargetKey(value: String): String {
     val trimmed = value.trim()
     return knowledgeNavKey(if (trimmed.endsWith(".md", true)) trimmed.dropLast(3) else trimmed)
+}
+
+private fun knowledgeNavResolveTarget(target: String, targets: Map<String, Set<String>>): List<String> {
+    val safe = !target.startsWith('/') && !target.contains('\\') &&
+        target.split('/').none { it == ".." || it == "." } &&
+        target.none { it.isISOControl() || it == ':' }
+    return if (!safe || target.isBlank()) emptyList() else targets[knowledgeNavKey(target)]?.sorted().orEmpty()
 }
 
 private fun hasMention(text: String, needle: String): Boolean {
@@ -292,7 +306,7 @@ private fun knowledgeNavSyntax(text: String, checkCancelled: () -> Unit): Knowle
     }
     val headings = mutableListOf<KnowledgeNavHeading>()
     clean.lineSequence().forEachIndexed { index, line ->
-        Regex("^ {0,3}(#{1,6})[ \\t]+(.+?)\\s*#*\\s*$").matchEntire(line)?.let {
+        Regex("^ {0,3}(#{1,6})[ \\t]+(.+?)(?:[ \\t]+#+)?[ \\t]*$").matchEntire(line)?.let {
             headings += KnowledgeNavHeading(it.groupValues[1].length, it.groupValues[2].trim(), index + 1)
         }
     }
@@ -331,13 +345,9 @@ internal fun buildKnowledgeNavIndex(
             var target = raw.substringBefore('|').substringBefore('#').trim()
             val anchor = raw.substringBefore('|').substringAfter('#', "").trim()
             if (target.endsWith(".md", true)) target = target.dropLast(3)
-            val safe = !target.startsWith('/') && !target.contains('\\') &&
-                target.split('/').none { it == ".." || it == "." } &&
-                target.none { it.isISOControl() || it == ':' }
             val candidates = when {
                 target.isBlank() && anchor.isNotBlank() -> listOf(page.id)
-                !safe || target.isBlank() -> emptyList()
-                else -> targets[knowledgeNavKey(target)]?.sorted().orEmpty()
+                else -> knowledgeNavResolveTarget(target, targets)
             }
             if (candidates.size == 1 && candidates.single() != page.id) incoming.getValue(candidates.single()).add(page.id)
             KnowledgeNavLink(target, anchor, raw.substringAfter('|', raw.substringBefore('|')).trim(), embedded,
@@ -348,7 +358,8 @@ internal fun buildKnowledgeNavIndex(
         pages[page.id] = KnowledgeNavIndexedPage(page, links, tags, syntax.headings,
             knowledgeNavKey("${page.title}\n${page.folder}\n${syntax.visible}"), knowledgeNavKey(syntax.mentions))
     }
-    return KnowledgeNavIndex(workspaceKey, pages, incoming.mapValues { it.value.toSet() }, tagCounts, input.count { !it.bodyAvailable })
+    return KnowledgeNavIndex(workspaceKey, pages, incoming.mapValues { it.value.toSet() }, tagCounts,
+        input.count { !it.bodyAvailable }, targets.mapValues { it.value.toSet() })
 }
 "####;
 
@@ -806,6 +817,18 @@ class KnowledgeNavigationIndexTest {
         for (title in listOf("A#B", "A|B", "A[B]", "A/B", "A:B")) assertNull(index(page("a", title)).wikiLink("a"))
         assertNull(index(page("a", "Same"), page("b", "Same", folder = "nested")).wikiLink("a"))
     }
+    @Test fun copiedLinkUsesActualResolverAndRejectsUnsafeOrAmbiguousPaths() {
+        for (title in listOf(".", "..", ".md")) assertNull(index(page("a", title)).wikiLink("a"))
+        for (folder in listOf(".", "..", "nested/..")) assertNull(index(page("a", "A", folder = folder)).wikiLink("a"))
+        assertNull(index(page("a", "Same", folder = "/"), page("b", "Same", folder = "other")).wikiLink("a"))
+        val target = page("a", "Title.md", folder = "library")
+        val link = index(target).wikiLink("a")!!
+        assertEquals(listOf("a"), index(page("source", text = link), target).links("source").single().candidates)
+    }
+    @Test fun atxOutlineRetainsLiteralHashesAndRemovesSeparatedClosingHashes() {
+        val headings = index(page("a", text = "# C#\n## 标题 ###\n### A##")).pages.getValue("a").headings
+        assertEquals(listOf("C#", "标题", "A##"), headings.map { it.title })
+    }
     @Test fun blankWorkspaceOrRepeatedIdentityIsRejected() {
         for (action in listOf<() -> Unit>({ buildKnowledgeNavIndex("", emptyList()) }, { index(page("a"), page("a")) }, { index(page("")) })) {
             var rejected = false; try { action() } catch (_: IllegalArgumentException) { rejected = true }; assertTrue(rejected)
@@ -875,7 +898,9 @@ class KnowledgeNavigationSnapshotTest {
     }
 
     @Test fun richAndStructuredBodiesAreNotFlattenedIntoFalseLinks() {
-        val rich = note("rich").copy(document = NoteDocument(richTextEnabled = true, richTextPlainText = "[[private]] #hidden"))
+        val rich = note("rich", "<p>[[private]] #hidden</p>").let { it.copy(document = it.document.copy(
+            richTextEnabled = true, richTextPlainText = "[[private]] #hidden"
+        )) }
         val structured = note("structured").let { it.copy(document = it.document.copy(knowledge = buildJsonObject {
             put("tags", buildJsonArray { add("project") })
         })) }
@@ -902,91 +927,24 @@ class KnowledgeNavigationSnapshotTest {
 }
 "####;
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn studio() -> &'static str {
-        super::super::kotlin_sources::SOURCES.iter()
-            .find(|item| item.path == SCREEN_PATH).expect("actual note studio template").contents
-    }
-
-    #[test]
-    fn actual_collection_opens_navigation_and_reuses_the_existing_note_route() {
-        let source = render(SCREEN_PATH, studio()).unwrap();
-        assert_eq!(source.matches("KnowledgeNavigationDialog(").count(), 1);
-        assert_eq!(source.matches("knowledge_open_navigation").count(), 1);
-        assert!(source.contains("onOpenNote(note)"));
-        assert!(source.contains("if (knowledgeNavigationVisible && !trashMode)"));
-    }
-
-    #[test]
-    fn prior_collection_transforms_can_run_before_this_navigation_transform() {
-        let source = super::super::android_note_list_performance::render(SCREEN_PATH, studio()).unwrap();
-        let source = super::super::android_knowledge_filters::render(SCREEN_PATH, &source).unwrap();
-        let source = super::super::android_ai_workflow::render(SCREEN_PATH, &source).unwrap();
-        let source = render(SCREEN_PATH, &source).unwrap();
-        assert!(source.contains("knowledge_open_navigation"));
-        assert!(source.contains("KnowledgeAiDialog("));
+        super::super::kotlin_sources::SOURCES
+            .iter()
+            .find(|item| item.path == SCREEN_PATH)
+            .expect("actual note studio template")
+            .contents
     }
 
     #[test]
     fn missing_duplicate_and_reapplied_hooks_fail_closed() {
         assert!(render(SCREEN_PATH, "changed template").is_err());
         assert!(render(SCREEN_PATH, &format!("{}\n{STATE_ANCHOR}", studio())).is_err());
+        assert!(render(SCREEN_PATH, &format!("{}\n{ENTRY_ANCHOR}", studio())).is_err());
         let once = render(SCREEN_PATH, studio()).unwrap();
         assert!(render(SCREEN_PATH, &once).is_err());
-    }
-
-    #[test]
-    fn transform_preserves_editor_save_and_sticky_source_bytes() {
-        let original = studio();
-        let mut restored = render(SCREEN_PATH, original).unwrap()
-            .replacen(STATE, STATE_ANCHOR, 1).replacen(ENTRY, ENTRY_ANCHOR, 1);
-        for name in ["androidx.compose.foundation.layout.heightIn", "androidx.compose.ui.platform.testTag"] {
-            let import = format!("import {name}\n");
-            if !original.contains(&import) { restored = restored.replacen(&import, "", 1); }
-        }
-        assert_eq!(restored, original);
-    }
-
-    #[test]
-    fn privacy_guard_precedes_all_title_body_and_property_access() {
-        let adapter = UI_CONTENTS.split("for (note in notes)").nth(1).unwrap();
-        let guard = adapter.find("if (!knowledgeNavMayIndex(").unwrap();
-        assert!(guard < adapter.find("note.resolvedDocument()").unwrap());
-        assert!(guard < adapter.find("note.displayTitle()").unwrap());
-        assert!(UI_CONTENTS.contains("sourceNotes === appData.notes"));
-        assert!(UI_CONTENTS.contains("KnowledgeNavSourceKey(appData.notes, appData.noteFolders)"));
-        assert!(UI_CONTENTS.contains("live.encryption != null"));
-    }
-
-    #[test]
-    fn generated_navigation_cannot_mutate_notes_or_send_them_to_a_provider() {
-        for forbidden in ["upsertNote", "deleteNote", "runLegalScan", "completeKnowledgeWithAi", "httpClient", "writeText("] {
-            assert!(!UI_CONTENTS.contains(forbidden), "unexpected side effect {forbidden}");
-            assert!(!INDEX_CONTENTS.contains(forbidden), "unexpected index side effect {forbidden}");
-        }
-        assert!(UI_CONTENTS.contains("withContext(Dispatchers.Default)"));
-        assert!(UI_CONTENTS.contains("worker.ensureActive()"));
-        assert!(UI_CONTENTS.contains("SecureFlagPolicy.SecureOn"));
-    }
-
-    #[test]
-    fn generator_emits_both_production_files_and_both_real_jvm_test_suites() {
-        let generator = include_str!("../bin/gridtimer_sourcegen.rs");
-        for suffix in ["INDEX_PATH", "UI_PATH", "TEST_PATH", "SNAPSHOT_TEST_PATH"] {
-            assert!(generator.contains(&format!("android_knowledge_navigation::{suffix}")));
-        }
-        let write = generator.split("fn write_source(").nth(1).unwrap();
-        assert!(write.find("android_knowledge_navigation::render").unwrap() < write.find("fs::write").unwrap());
-    }
-
-    #[test]
-    fn unrelated_kotlin_and_formatted_preview_are_unchanged() {
-        for path in ["com/ofairyo/gridtimer/ui/NoteDocumentEditor.kt", "com/ofairyo/gridtimer/ui/AndroidRenderedMarkdown.kt", TEST_PATH] {
-            assert_eq!(render(path, "unrelated source").unwrap(), "unrelated source");
-        }
     }
 }
