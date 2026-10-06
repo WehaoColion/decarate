@@ -26,6 +26,8 @@ mod android_backup_availability;
 mod android_canvas_ui;
 #[path = "../sourcegen/android_device_timer_sync.rs"]
 mod android_device_timer_sync;
+#[path = "../sourcegen/android_document_block_alignment.rs"]
+mod android_document_block_alignment;
 #[path = "../sourcegen/android_document_caret.rs"]
 mod android_document_caret;
 #[path = "../sourcegen/android_document_markdown.rs"]
@@ -564,6 +566,8 @@ fn write_source(output_root: &Path, relative_path: &str, contents: &str) -> io::
     let contents = android_finance_workspace::render(relative_path, &contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = android_document_markdown::render(relative_path, &contents)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let contents = android_document_block_alignment::render(relative_path, &contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = contents
         .replace("十倍率", "tenfold")

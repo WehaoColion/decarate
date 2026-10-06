@@ -1,3 +1,4 @@
+// v2.23.2.13 - Record centered document text and matching caret relocation coordinates.
 // v2.23.2.12 - Record document preview paragraph preservation and Markdown boundary repairs.
 // v2.23.2.11 - Record task-oriented financial risk and original review semantics.
 // v2.23.2.10 - Record compact knowledge header and document caret visibility.
@@ -15,7 +16,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.12";
+pub const LATEST_VERSION: &str = "2.23.2.13";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -45,6 +46,25 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.13",
+        updatedAt = "2026-10-06 01:47",
+        summary = "文档标题和正文在编辑块内上下居中，保留光标与键盘避让",
+        sections = listOf(
+            AndroidUpdateSection("标题和正文位置", listOf(
+                "调整知识文档文本块内的文字位置。单行一级标题、二级标题和普通正文在现有最小高度内上下居中，继续沿用原来的左右对齐方向，不增加卡片高度。",
+                "多行正文按实际内容自然增高，不固定整段高度。空白块的占位提示与输入区域使用同一布局，图片、联系人、通话等非文本块和左侧拖拽点的位置保留原样。"
+            )),
+            AndroidUpdateSection("输入、光标和键盘", listOf(
+                "文字上下居中后，光标避让跟随实际文本区域计算位置，避免短段落靠近键盘时按旧位置滚动。保留连续换行、选择位置、窗口焦点和实时文本布局的原有保护。",
+                "输入内容、文档块ID、保存、撤销和重做沿用现有流程。此前修复的独立段落、公式、代码和表格预览继续保留，切换预览不改写正文。"
+            )),
+            AndroidUpdateSection("更新记录与安装", listOf(
+                "本次新增2.23.2.13中文更新说明，保留此前版本。当前版和历史版仍可展开、收起、点按复制或复制整版，更新时间按北京时间精确到分钟。",
+                "版本2.23.2.13，内部版本代码22282，包名com.ofairyo.gridtimer，沿用原正式签名。Windows保持1.1.0.7；本版手机上的实际显示、键盘及覆盖安装结果以验收记录为准。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.12",
         updatedAt = "2026-10-05 20:09",

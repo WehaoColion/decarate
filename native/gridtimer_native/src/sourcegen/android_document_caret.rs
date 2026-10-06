@@ -244,8 +244,9 @@ internal fun rememberDocumentCaretVisibility(
             DocumentCaretBounds(caret.left, caret.top, caret.right, caret.bottom),
             latestViewportHeight, clearancePx
         ) ?: return@LaunchedEffect
-        // The requester is on the unpadded decoration box, in text-layout
-        // coordinates. Reveal the caret, not the whole potentially huge block.
+        // The requester uses the unpadded text region's local coordinates.
+        // Alignment may move that region inside the decoration box. Reveal
+        // the caret, not the whole potentially huge block.
         // LaunchedEffect propagates cancellation when a newer edit/focus replaces
         // this request; no delayed jobs can scroll an old block back into view.
         state.requester.bringIntoView(Rect(target.left, target.top, target.right, target.bottom))
