@@ -1,3 +1,4 @@
+// v2.23.2.14 - Record edit-first document entry and explicit temporary preview.
 // v2.23.2.13 - Record centered document text and matching caret relocation coordinates.
 // v2.23.2.12 - Record document preview paragraph preservation and Markdown boundary repairs.
 // v2.23.2.11 - Record task-oriented financial risk and original review semantics.
@@ -16,7 +17,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.13";
+pub const LATEST_VERSION: &str = "2.23.2.14";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -46,6 +47,25 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.14",
+        updatedAt = "2026-10-06 10:43",
+        summary = "文档打开后直接进入编辑原文，预览由你主动切换",
+        sections = listOf(
+            AndroidUpdateSection("打开文档即可编辑", listOf(
+                "调整知识文档的默认打开方式。已有普通正文、标题和公式的文档，打开时直接显示编辑原文，不再因为正文可以排版就自动进入预览。首次显示即为编辑区域，不通过延迟切换制造跳动。",
+                "需要排版时仍可点击预览公式与排版；查看后点击编辑原文，继续沿用原来的输入和焦点处理。未新增打开已有文档就强制弹键盘或移动光标的行为；空白新文档原有标题焦点保留。"
+            )),
+            AndroidUpdateSection("主动预览与页面恢复", listOf(
+                "预览作为本次打开页面的临时选择。当前文档页面保持打开时，普通界面重组或保存状态刷新不主动取消你的预览选择。",
+                "从列表重新打开文档、打开另一篇文档、切换工作区或系统重建编辑器时，默认回到编辑原文。正文、草稿、选择区间、中文输入组合串、撤销重做和滚动记录仍由原有流程保存，不把预览标记混入内容恢复。"
+            )),
+            AndroidUpdateSection("已有修复与安装", listOf(
+                "保留独立正文段落、公式、代码和表格预览，以及此前的文本块上下居中和连续换行键盘避让。本次不修改正文、块ID、同步、AI接口和财务计算。",
+                "版本2.23.2.14，内部版本代码22283，包名com.ofairyo.gridtimer，沿用原正式签名。新增本版中文说明并保留以前版本，说明仍可折叠、点按复制及复制整版，更新时间按北京时间精确到分钟。Windows保持1.1.0.7。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.13",
         updatedAt = "2026-10-06 01:47",

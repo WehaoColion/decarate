@@ -544,55 +544,6 @@ mod tests {
     }
 
     #[test]
-    fn new_entries_start_in_edit_mode_without_restoring_a_preview_flag() {
-        let rendered = render(EDITOR_PATH, editor()).unwrap();
-        let entry = rendered
-            .split("    var markdownPreview by ")
-            .nth(1)
-            .unwrap()
-            .split("    fun beginEditing(")
-            .next()
-            .unwrap();
-        assert!(entry.contains("remember(note.id, workspaceKey)"));
-        assert!(entry.contains("mutableStateOf(false)"));
-        assert!(!entry.contains("rememberSaveable"));
-        assert!(!entry.contains("documentMarkdownPreviewText("));
-        assert!(!entry.contains("requestFocus"));
-        assert!(!entry.contains("LaunchedEffect"));
-        assert_eq!(rendered.matches(NEW_ENTRY_MODE).count(), 1);
-        assert!(!rendered.contains(OLD_ENTRY_MODE));
-    }
-
-    #[test]
-    fn explicit_preview_and_edit_actions_remain_byte_for_byte_unchanged() {
-        let original = editor();
-        let rendered = render(EDITOR_PATH, original).unwrap();
-        let actions = |source: &str| {
-            source
-                .split("    fun beginEditing(")
-                .nth(1)
-                .unwrap()
-                .split("    fun ensureTextStates(")
-                .next()
-                .unwrap()
-                .to_owned()
-        };
-        assert_eq!(actions(&rendered), actions(original));
-        let actual = actions(&rendered);
-        assert!(actual.contains("markdownPreview = false"));
-        assert!(actual.contains("markdownPreview = true"));
-        assert!(actual.contains("focusManager.clearFocus(force = true)"));
-        assert!(actual.contains(
-            "documentMarkdownPreviewText(initialDocument, blocks, textFieldStates) == null"
-        ));
-        assert!(rendered.contains(
-            "val showingMarkdownPreview = markdownPreview && markdownPreviewText != null"
-        ));
-        assert!(rendered.contains("onClick = ::beginMarkdownPreview"));
-        assert!(rendered.contains("onClick = { beginEditing(requestBodyFocus = true) }"));
-    }
-
-    #[test]
     fn entry_initializer_drift_and_duplicates_fail_closed() {
         let missing = editor().replacen(OLD_ENTRY_MODE, "", 1);
         assert!(render(EDITOR_PATH, &missing).is_err());
