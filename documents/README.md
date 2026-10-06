@@ -6,6 +6,8 @@ v0.0.5 - 纳入知识关联检索验收与后续路线。
 
 ## Android 验收与性能记录
 
+- [FlowUs 能力对标与安卓结构化阅读升级](android/flowus_android_gap_audit.md)
+
 - [Obsidian 安卓能力对标与实施路线](android/obsidian_android_gap_audit.md)
 - [知识关联与检索候选验收](android/knowledge_navigation_acceptance.md)
 
