@@ -143,6 +143,8 @@ fn run() -> io::Result<()> {
     fs::create_dir_all(&output_root)?;
 
     if let Some(unit_test_output_root) = unit_test_output_root {
+        write_source(&unit_test_output_root, android_knowledge_compat::TEST_PATH, android_knowledge_compat::TEST_CONTENTS)?;
+        write_source(&unit_test_output_root, android_knowledge_compat::EDIT_TEST_PATH, android_knowledge_compat::EDIT_TEST_CONTENTS)?;
         write_source(
             &unit_test_output_root,
             android_knowledge_navigation::TEST_PATH,
@@ -256,6 +258,9 @@ fn run() -> io::Result<()> {
         android_knowledge_navigation::UI_PATH,
         android_knowledge_navigation::UI_CONTENTS,
     )?;
+
+    write_source(&output_root, android_knowledge_compat::POLICY_PATH, android_knowledge_compat::POLICY_CONTENTS)?;
+    write_source(&output_root, android_knowledge_compat::EDIT_PATH, android_knowledge_compat::EDIT_CONTENTS)?;
 
     for source in kotlin_sources::SOURCES {
         let rendered = render_source(
