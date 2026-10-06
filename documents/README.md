@@ -1,10 +1,13 @@
-v0.0.4 - 纳入文档默认编辑与主动预览验收，保留现有分类导航。
+v0.0.5 - 纳入知识关联检索验收与后续路线。
 
 # 项目文档
 
 [全部版本更新说明](releases/README.md)
 
 ## Android 验收与性能记录
+
+- [Obsidian 安卓能力对标与实施路线](android/obsidian_android_gap_audit.md)
+- [知识关联与检索候选验收](android/knowledge_navigation_acceptance.md)
 
 - [文档默认编辑与主动预览验收](android/document_editor_entry_acceptance.md)
 

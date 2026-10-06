@@ -1,3 +1,4 @@
+# v0.0.30 - Gate knowledge navigation format, actual JVM suites and generated routing.
 # v0.0.29 - Include the document text alignment transform in formal Rust formatting.
 # v0.0.28 - Gate document Markdown block projection and executed separator mutations.
 # v0.0.27 - Freeze finance navigation mutation and gate its real generated integration.
@@ -147,6 +148,7 @@ try {
     if([version]$taskVersion -ge [version]'2.23.2.11'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_finance_workspace.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.12'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_document_markdown.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.13'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_document_block_alignment.rs'}
+    if([version]$taskVersion -ge [version]'2.23.2.15'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_knowledge_navigation.rs'}
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
@@ -364,6 +366,37 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $taskRoot 'app\build\reports\lint-results-release.xml') -Destination (Join-Path $taskEvidence 'lint-results-release.xml') -Force
     $apk = Join-Path $taskRoot "app\build\outputs\apk\release\tenfold_v$taskVersion.apk"
+
+    if([version]$taskVersion -ge [version]'2.23.2.15'){
+        $navigationSource=[IO.File]::ReadAllText((Join-Path $taskCrate 'src/sourcegen/android_knowledge_navigation.rs'))
+        $navigationCounts=[ordered]@{}
+        foreach($suite in @(@('TEST_CONTENTS','KnowledgeNavigationIndexTest'),@('SNAPSHOT_TEST_CONTENTS','KnowledgeNavigationSnapshotTest'))){
+            $literal=[regex]::Match($navigationSource,'(?s)pub const '+$suite[0]+':\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+            if(!$literal.Success){throw 'Navigation JVM source literal missing'}
+            $expected=([regex]::Matches($literal.Groups['body'].Value,'@Test fun ')).Count
+            $xmlPath=Join-Path $taskRoot ('app/build/test-results/testReleaseUnitTest/TEST-com.ofairyo.gridtimer.ui.'+$suite[1]+'.xml')
+            [xml]$navigationJunit=Get-Content -LiteralPath $xmlPath -Raw
+            if($expected -lt 1 -or [int]$navigationJunit.testsuite.tests -ne $expected -or [int]$navigationJunit.testsuite.failures -ne 0 -or [int]$navigationJunit.testsuite.errors -ne 0 -or [int]$navigationJunit.testsuite.skipped -ne 0){throw ('Navigation JVM gate failed: '+$suite[1])}
+            Copy-Item -LiteralPath $xmlPath -Destination (Join-Path $taskEvidence ($suite[1]+'.xml')) -Force
+            $navigationCounts[$suite[1]]=$expected
+        }
+        $navigationGenerated=[ordered]@{}
+        foreach($literalName in @('INDEX_CONTENTS','UI_CONTENTS')){
+            $literal=[regex]::Match($navigationSource,'(?s)pub const '+$literalName+':\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+            $fileName=if($literalName -eq 'INDEX_CONTENTS'){'KnowledgeNavigationIndex.kt'}else{'KnowledgeNavigation.kt'}
+            $path=Join-Path $taskRoot ('app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/'+$fileName)
+            if(!$literal.Success -or [IO.File]::ReadAllText($path).Replace("`r`n","`n").Trim() -cne $literal.Groups['body'].Value.Replace("`r`n","`n").Trim()){throw ('Actual generated navigation differs from frozen Rust source: '+$fileName)}
+            $navigationGenerated[$fileName]=(Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()
+        }
+        $studio=[IO.File]::ReadAllText((Join-Path $taskRoot 'app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/NoteStudioSheet.kt'))
+        if(([regex]::Matches($studio,'testTag\("knowledge_open_navigation"\)')).Count -ne 1 -or ([regex]::Matches($studio,'KnowledgeNavigationDialog\(')).Count -ne 1 -or !$studio.Contains('onOpenNote(note)')){throw 'Actual collection navigation route missing or duplicated'}
+        if($taskSourcegenOutput -notmatch '(?m)^test android_knowledge_navigation::tests::missing_duplicate_and_reapplied_hooks_fail_closed \.\.\. ok\s*$'){
+            $navRustLog=[IO.File]::ReadAllText((Join-Path $taskEvidence 'sourcegen_tests.log'))
+            if($navRustLog -notmatch '(?m)^test android_knowledge_navigation::tests::missing_duplicate_and_reapplied_hooks_fail_closed \.\.\. ok\s*$'){throw 'Navigation generator failure boundary did not execute'}
+        }
+        Write-TaskJson 'knowledge_navigation_generated_acceptance.json' ([ordered]@{passed=$true;sourceSnapshotSha256=$before.sha256;jvmTests=$navigationCounts;generatedFiles=$navigationGenerated;uniqueCollectionEntry=$true;existingNoteRoute=$true;deviceVerified=$false})
+    }
+
     $result = [ordered]@{schemaVersion=1;version=$taskVersion;mode=$Mode;passed=$true;noDeviceOperations=$true;sourceSnapshotSha256=$before.sha256;editingTests=$expectedTests;nativeArgumentEncoding=$taskNativeEncoding;completed=(Get-Date).ToUniversalTime().ToString('o');checks=@('rust_format','native_tests','sourcegen_tests','packager_tests','android_source_audit','android_jvm_tests','android_lint')}
     $result['excludedNonAndroidTestSuites'] = $taskNonAndroidSuites
     $result['nativeChecksReusedForFixtureOnlyRepair'] = $reusedNativeChecks
