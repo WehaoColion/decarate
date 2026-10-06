@@ -1,3 +1,4 @@
+// v2.23.2.14 - Open documents in editing mode; make preview an explicit choice.
 // v2.23.2.13 - Center document text blocks while preserving caret relocation.
 // v2.23.2.11 - Organize finance overview, review and forecast details.
 // v2.23.2.10 - Integrate compact knowledge header and caret visibility.
@@ -141,8 +142,8 @@ android {
         applicationId 'com.ofairyo.gridtimer'
         minSdk 26
         targetSdk 34
-        versionCode 22282
-        versionName '2.23.2.13'
+        versionCode 22283
+        versionName '2.23.2.14'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         manifestPlaceholders.xiaomiAppId = ''
         manifestPlaceholders.xiaomiBuildTypeDebug = 'true'

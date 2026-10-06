@@ -1,4 +1,5 @@
 //! Keep independent canvas paragraphs distinct in the read-only Markdown preview.
+//! New document entries open in edit mode; preview is a temporary explicit choice.
 //! Neither stored blocks nor the shared AI-answer renderer are changed.
 
 const EDITOR_PATH: &str = "com/ofairyo/gridtimer/ui/NoteDocumentEditor.kt";
@@ -14,11 +15,31 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
             "document Markdown paragraph projection: expected one original join, found {count}"
         ));
     }
+    let entry_count = source.matches(OLD_ENTRY_MODE).count();
+    if entry_count != 1 {
+        return Err(format!(
+            "document edit-first entry: expected one preview initializer, found {entry_count}"
+        ));
+    }
     Ok(format!(
         "{}\n{HELPERS}",
-        source.replacen(OLD_JOIN, NEW_JOIN, 1)
+        source
+            .replacen(OLD_JOIN, NEW_JOIN, 1)
+            .replacen(OLD_ENTRY_MODE, NEW_ENTRY_MODE, 1)
     ))
 }
+
+// Keep view mode out of saved-instance state. Returning from the collection,
+// changing note/workspace, or recreating the editor must not reopen its preview.
+// The draft, selections, undo stacks and list position keep their existing owners.
+const OLD_ENTRY_MODE: &str = r####"    var markdownPreview by rememberSaveable(note.id, workspaceKey) {
+        mutableStateOf(documentMarkdownPreviewText(initialDocument, initialDocument.blocks) != null)
+    }"####;
+
+const NEW_ENTRY_MODE: &str = r####"    // Preview is opt-in for this open editor, not a persisted document preference.
+    var markdownPreview by remember(note.id, workspaceKey) {
+        mutableStateOf(false)
+    }"####;
 
 const OLD_JOIN: &str = r####"    return draftBlocks.joinToString("\n") { block ->
         textFieldStates[block.id]?.text ?: block.text
@@ -481,7 +502,12 @@ mod tests {
         assert_eq!(rendered.matches(NEW_JOIN).count(), 1);
         assert!(!rendered.contains(OLD_JOIN));
         let restored = rendered.strip_suffix(&format!("\n{HELPERS}")).unwrap();
-        assert_eq!(restored.replacen(NEW_JOIN, OLD_JOIN, 1), original);
+        assert_eq!(
+            restored
+                .replacen(NEW_JOIN, OLD_JOIN, 1)
+                .replacen(NEW_ENTRY_MODE, OLD_ENTRY_MODE, 1),
+            original
+        );
     }
 
     #[test]
@@ -515,6 +541,14 @@ mod tests {
         assert!(render(EDITOR_PATH, &format!("{OLD_JOIN}{OLD_JOIN}")).is_err());
         let rendered = render(EDITOR_PATH, editor()).unwrap();
         assert!(render(EDITOR_PATH, &rendered).is_err());
+    }
+
+    #[test]
+    fn entry_initializer_drift_and_duplicates_fail_closed() {
+        let missing = editor().replacen(OLD_ENTRY_MODE, "", 1);
+        assert!(render(EDITOR_PATH, &missing).is_err());
+        let duplicate = format!("{}\n{OLD_ENTRY_MODE}", editor());
+        assert!(render(EDITOR_PATH, &duplicate).is_err());
     }
 
     #[test]
