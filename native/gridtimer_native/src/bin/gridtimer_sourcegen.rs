@@ -42,6 +42,8 @@ mod android_jvm_test_sources;
 mod android_knowledge_compat;
 #[path = "../sourcegen/android_knowledge_filters.rs"]
 mod android_knowledge_filters;
+#[path = "../sourcegen/android_knowledge_navigation.rs"]
+mod android_knowledge_navigation;
 #[path = "../sourcegen/android_legal_integration.rs"]
 mod android_legal_integration;
 #[path = "../sourcegen/android_legal_workflow.rs"]
@@ -143,6 +145,16 @@ fn run() -> io::Result<()> {
     if let Some(unit_test_output_root) = unit_test_output_root {
         write_source(
             &unit_test_output_root,
+            android_knowledge_navigation::TEST_PATH,
+            android_knowledge_navigation::TEST_CONTENTS,
+        )?;
+        write_source(
+            &unit_test_output_root,
+            android_knowledge_navigation::SNAPSHOT_TEST_PATH,
+            android_knowledge_navigation::SNAPSHOT_TEST_CONTENTS,
+        )?;
+        write_source(
+            &unit_test_output_root,
             android_document_markdown::TEST_PATH,
             android_document_markdown::TEST_CONTENTS,
         )?;
@@ -232,6 +244,17 @@ fn run() -> io::Result<()> {
         &output_root,
         android_document_caret::UI_PATH,
         android_document_caret::UI_CONTENTS,
+    )?;
+
+    write_source(
+        &output_root,
+        android_knowledge_navigation::INDEX_PATH,
+        android_knowledge_navigation::INDEX_CONTENTS,
+    )?;
+    write_source(
+        &output_root,
+        android_knowledge_navigation::UI_PATH,
+        android_knowledge_navigation::UI_CONTENTS,
     )?;
 
     for source in kotlin_sources::SOURCES {
@@ -568,6 +591,8 @@ fn write_source(output_root: &Path, relative_path: &str, contents: &str) -> io::
     let contents = android_document_markdown::render(relative_path, &contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = android_document_block_alignment::render(relative_path, &contents)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let contents = android_knowledge_navigation::render(relative_path, &contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let contents = contents
         .replace("十倍率", "tenfold")

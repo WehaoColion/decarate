@@ -6,6 +6,9 @@ v0.0.4 - 纳入文档默认编辑与主动预览验收，保留现有分类导�
 
 ## Android 验收与性能记录
 
+- [Obsidian 安卓能力对标与实施路线](android/obsidian_android_gap_audit.md)
+- [知识关联与检索候选验收](android/knowledge_navigation_acceptance.md)
+
 - [文档默认编辑与主动预览验收](android/document_editor_entry_acceptance.md)
 
 - [文档文本块居中与光标避让验收](android/document_block_alignment_acceptance.md)
