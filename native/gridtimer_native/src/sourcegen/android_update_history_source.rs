@@ -1,3 +1,4 @@
+// v2.23.2.16 - Record structured page editing with minute-level time.
 // v2.23.2.15 - Record local knowledge navigation with minute-level update time.
 // v2.23.2.14 - Record edit-first document entry and explicit temporary preview.
 // v2.23.2.13 - Record centered document text and matching caret relocation coordinates.
@@ -18,7 +19,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.15";
+pub const LATEST_VERSION: &str = "2.23.2.16";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -48,6 +49,28 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.16",
+        updatedAt = "2026-10-06 17:37",
+        summary = "知识模块增加结构页编辑，支持待办、表格、属性、折叠与目录定位",
+        sections = listOf(
+            AndroidUpdateSection("创建与编辑结构页", listOf(
+                "知识模块的新建文档模板增加结构页，预置标题、正文、待办、折叠块、子块、简单表格和状态、日期属性。原空白、清单、会议和复盘模板继续保留，便签保持原模板。",
+                "已有可编辑结构页可修改页面标题、文本块、待办勾选、表格单元格及标签；可新增正文、标题、待办、折叠块和简单表格，为折叠块增加子块。新增表格行列最多200行、20列，不提供删除原有行列的操作。"
+            )),
+            AndroidUpdateSection("属性与阅读定位", listOf(
+                "支持独立页面现有文字、数字、勾选、网址和日期属性，输入时核对类型、有限数字、网址及日期范围。未知属性、数据库结构及带父记录关系的页面属性暂只读，防止修改公式或汇总计算值。",
+                "折叠操作仅改变本机阅读状态，收起后隐藏子孙块，不改写原内容。目录展示标题层级，点按后展开目标的折叠祖先并滚动定位；循环或失效父关系不会让页面无限等待。"
+            )),
+            AndroidUpdateSection("保存与数据保护", listOf(
+                "保存只提交本次修改的字段，在现有写入事务中核对工作区、文档版本及字段原值。成功持久化后再发布结果并核对实际保存字段；页面已变化时保留输入，避免整页覆盖或把保存失败当成成功。",
+                "同一时刻只允许一个结构页保存请求，复用现有保存队列。已删除、锁定、加密及未知版本页面，以及复杂富文本保持只读；不会将临时解锁副本保存成明文。数字属性按实际值核对，避免序列化小数或字段排列变化引发误报。"
+            )),
+            AndroidUpdateSection("版本与更新记录", listOf(
+                "安卓版本2.23.2.16，内部版本代码22285，沿用原应用包名和正式签名，可覆盖更新现有应用。历版更新说明继续保留，可折叠、点按复制和复制整版，更新时间按北京时间精确到分钟。Windows保持1.1.0.7。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.15",
         updatedAt = "2026-10-06 11:53",

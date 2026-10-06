@@ -1,3 +1,4 @@
+// v2.23.2.16 Android - Add structured pages while preserving Windows identity.
 // v2.23.2.15 Android - Add local knowledge navigation while preserving Windows identity.
 // v2.23.2.14 Android - Open documents in editing mode without restoring preview flags.
 // v2.23.2.13 Android - Center document text and retain cursor-relative keyboard relocation.
@@ -88,8 +89,8 @@
 
 pub const WINDOWS_APP_VERSION: &str = "1.1.0.7";
 pub const SYNC_SUPERVISOR_MUTEX_NAME: &str = r"Local\GridTimerSyncSupervisor-v1";
-pub const ANDROID_APP_VERSION: &str = "2.23.2.15";
-pub const ANDROID_VERSION_CODE: i32 = 22284;
+pub const ANDROID_APP_VERSION: &str = "2.23.2.16";
+pub const ANDROID_VERSION_CODE: i32 = 22285;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductIdentity {

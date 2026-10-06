@@ -1,3 +1,4 @@
+// v2.23.2.16 - Preserve exact edit comparisons and protect inherited database properties.
 // Rust-owned source strings for the mobile structured-page feature.
 
 pub const POLICY_CONTENTS: &str = r####"package com.ofairyo.gridtimer.data
@@ -124,6 +125,7 @@ internal class StructuredSaveGate {
 pub const EDIT_CONTENTS: &str = r####"package com.ofairyo.gridtimer.data
 
 import kotlinx.serialization.json.*
+import java.math.BigDecimal
 import java.util.UUID
 
 internal fun JsonObject?.structuredText(key: String): String =
@@ -131,6 +133,46 @@ internal fun JsonObject?.structuredText(key: String): String =
 internal fun JsonObject?.structuredFlag(key: String): Boolean = structuredText(key) == "true"
 private fun JsonObject?.supportedStructuredVersion(): Boolean =
     this == null || this["version"] == null || structuredText("version") == "1"
+
+/** A record may inherit computed fields from its parent; this editor has no schema editor. */
+internal fun JsonObject?.structuredPropertiesEditable(): Boolean {
+    val database = this?.get("database")
+    return structuredText("parentId").isBlank() && (database == null || database == JsonNull)
+}
+
+/** Compare the JSON value, not a serializer's key order or decimal notation.
+ * Decimal comparison remains exact: rounding through Double here could hide a changed target.
+ */
+private fun JsonElement.structuredCanonicalToken(): String = when (this) {
+    is JsonObject -> entries.sortedBy { it.key }.joinToString(",", "{", "}") {
+        JsonPrimitive(it.key).toString() + ":" + it.value.structuredCanonicalToken()
+    }
+    is JsonArray -> joinToString(",", "[", "]") { it.structuredCanonicalToken() }
+    is JsonPrimitive -> if (isString || this == JsonNull || booleanOrNull != null) toString() else {
+        runCatching {
+            val decimal = BigDecimal(content).stripTrailingZeros()
+            if (decimal.signum() == 0 && content.startsWith('-')) "-0" else decimal.toString()
+        }.getOrElse { toString() }
+    }
+}
+
+/** Only the number property's value crosses Rust's f64 wire representation.
+ * Preserve every other field exactly, including the cell kind and unknown metadata.
+ */
+private fun structuredPersistedPropertyMatches(actual: JsonElement?, expectedToken: String): Boolean {
+    val expected = runCatching { Json.parseToJsonElement(expectedToken) }.getOrNull() ?: return false
+    if (actual is JsonObject && expected is JsonObject && expected.structuredText("kind") == "number") {
+        val actualValue = actual["value"] as? JsonPrimitive ?: return false
+        val expectedValue = expected["value"] as? JsonPrimitive ?: return false
+        if (actualValue.isString || expectedValue.isString) return false
+        val actualNumber = actualValue.content.toDoubleOrNull()?.takeIf { it.isFinite() } ?: return false
+        val expectedNumber = expectedValue.content.toDoubleOrNull()?.takeIf { it.isFinite() } ?: return false
+        return actualNumber.toBits() == expectedNumber.toBits() &&
+            JsonObject(actual - "value").structuredCanonicalToken() ==
+                JsonObject(expected - "value").structuredCanonicalToken()
+    }
+    return actual?.structuredCanonicalToken() == expected.structuredCanonicalToken()
+}
 
 internal fun NoteEntry.canEditStructured(): Boolean = structuredEditAllowed(
     document = kind == NoteEntryKind.DOCUMENT,
@@ -153,7 +195,7 @@ internal fun structuredTargetToken(note: NoteEntry, patch: StructuredNotePatch):
         "cell" -> ((block?.knowledge?.get("table") as? JsonArray)?.getOrNull(patch.row) as? JsonArray)
             ?.getOrNull(patch.column)?.let { (it as? JsonPrimitive)?.contentOrNull }
         "table_row", "table_column" -> (block?.knowledge?.get("table") as? JsonArray)?.toString()
-        "property" -> (note.document.knowledge?.get("properties") as? JsonObject)?.get(patch.key)?.toString()
+        "property" -> (note.document.knowledge?.get("properties") as? JsonObject)?.get(patch.key)?.structuredCanonicalToken()
         "tags" -> (note.document.knowledge?.get("tags") as? JsonArray ?: JsonArray(emptyList())).toString()
         "append" -> if (patch.blockId.isBlank() || note.document.blocks.any { it.id == patch.blockId }) null
             else if (patch.parentId.isNotBlank() && note.document.blocks.singleOrNull { it.id == patch.parentId }
@@ -218,8 +260,8 @@ internal fun applyStructuredPatch(note: NoteEntry, patch: StructuredNotePatch): 
             val cell = properties[patch.key] as? JsonObject ?: return null
             val kind = cell.structuredText("kind")
             if (kind !in structuredPropertyKinds || structuredInputError(kind, patch.value) != null) return null
-            // Database schema/options/formulas need their own editor, never guess their write contract.
-            if (page["database"] != null && page["database"] != JsonNull) return null
+            // Database schemas and inherited fields need their owning editor.
+            if (!page.structuredPropertiesEditable()) return null
             val value: JsonElement = when (kind) {
                 "number" -> JsonPrimitive(patch.value.trim().toDouble())
                 "checkbox" -> JsonPrimitive(patch.value == "true")
@@ -300,6 +342,10 @@ internal fun buildStructuredMobileNote(folderId: String?, now: Long): NoteEntry 
 }
 
 internal fun structuredPatchVerified(note: NoteEntry, patch: StructuredNotePatch, expected: String?): Boolean {
+    if (patch.action == "property") {
+        val cell = (note.document.knowledge?.get("properties") as? JsonObject)?.get(patch.key)
+        return expected != null && structuredPersistedPropertyMatches(cell, expected)
+    }
     if (patch.action != "append") return expected != null && structuredTargetToken(note, patch) == expected
     val added = note.document.blocks.singleOrNull { it.id == patch.blockId } ?: return false
     return added.text == patch.value && added.knowledge.structuredText("kind") == patch.key &&

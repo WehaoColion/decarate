@@ -1,3 +1,4 @@
+// v2.23.2.16 - Specify persisted property equivalence and inherited-property write barriers.
 // Rust-owned source strings for the mobile structured-page feature.
 
 pub const TEST_CONTENTS: &str = r####"package com.ofairyo.gridtimer.data
@@ -51,6 +52,12 @@ import kotlinx.serialization.json.*
 
 class StructuredNoteEditingTest {
     private fun note() = buildStructuredMobileNote("folder",123L)
+    private fun withProperty(n: NoteEntry, raw: String, key: String="amount"): NoteEntry {
+        val page = n.document.knowledge!!
+        val properties = page["properties"]!!.jsonObject
+        return n.copy(document=n.document.copy(knowledge=JsonObject(page +
+            ("properties" to JsonObject(properties + (key to Json.parseToJsonElement(raw)))))))
+    }
     private fun request(n: NoteEntry, action: String, blockId: String="", key: String="", row: Int=-1, column: Int=-1, value: String="", parentId: String=""): StructuredNotePatch {
         val p=StructuredNotePatch(n.id,n.updatedAtEpochMillis,action,blockId,key,row,column,value=value,parentId=parentId)
         return p.copy(expectedValue=structuredTargetToken(n,p)!!)
@@ -69,5 +76,80 @@ class StructuredNoteEditingTest {
     @Test fun verifiedWriteChecksTheActualFieldNotJustSuccessStatus() { val n=note();val p=request(n,"text",n.document.blocks.first().id,value="new");val next=applyStructuredPatch(n,p)!!;val expected=structuredTargetToken(next,p);assertTrue(structuredPatchVerified(next,p,expected));assertFalse(structuredPatchVerified(n,p,expected)) }
     @Test fun missingCheckboxCannotBecomeASuccessfulNoop() { val n=note();val p=StructuredNotePatch(n.id,n.updatedAtEpochMillis,"checked","missing",expectedValue="false",value="true");assertNull(structuredTargetToken(n,p));assertNull(applyStructuredPatch(n,p)) }
     @Test fun pageTitleEditDoesNotChangeBodyOrProperties() { val n=note();val next=applyStructuredPatch(n,request(n,"title",value="我的项目"))!!;assertEquals("我的项目",next.title);assertEquals(n.document,next.document) }
+    @Test fun propertyTokenIgnoresObjectOrderAndEquivalentDecimalNotation() {
+        val original=withProperty(note(),"""{"kind":"number","value":1e-7,"meta":{"a":1,"b":2}}""")
+        val reordered=withProperty(original,"""{"meta":{"b":2.0,"a":1.0},"value":1.0E-7,"kind":"number"}""")
+        val patch=request(original,"property",key="amount",value="0.25")
+        assertEquals(patch.expectedValue,structuredTargetToken(reordered,patch))
+        assertNotNull(applyStructuredPatch(reordered,patch))
+    }
+    @Test fun numericPersistedVerificationAcceptsRustF64Notation() {
+        for (value in listOf("1e-7","1e23")) {
+            val original=withProperty(note(),"""{"kind":"number","value":0.0}""")
+            val patch=request(original,"property",key="amount",value=value)
+            val edited=applyStructuredPatch(original,patch)!!
+            val expected=structuredTargetToken(edited,patch)
+            val persisted=withProperty(edited,"""{"value":$value,"kind":"number"}""")
+            assertTrue(value,structuredPatchVerified(persisted,patch,expected))
+        }
+    }
+    @Test fun numericVerificationRejectsDifferentValuesAndJsonTypes() {
+        val original=withProperty(note(),"""{"kind":"number","value":0.0}""")
+        val patch=request(original,"property",key="amount",value="1e-7")
+        val edited=applyStructuredPatch(original,patch)!!
+        val expected=structuredTargetToken(edited,patch)
+        for (cell in listOf("""{"kind":"number","value":1.1e-7}""",
+                """{"kind":"number","value":"1e-7"}""", """{"kind":"text","value":1e-7}""")) {
+            assertFalse(cell,structuredPatchVerified(withProperty(edited,cell),patch,expected))
+        }
+    }
+    @Test fun propertyCasDoesNotRoundDistinctLargeIntegersIntoTheSameTarget() {
+        val original=withProperty(note(),"""{"kind":"number","value":9007199254740992}""")
+        val changed=withProperty(original,"""{"kind":"number","value":9007199254740993}""")
+        val patch=request(original,"property",key="amount",value="2")
+        assertNotEquals(patch.expectedValue,structuredTargetToken(changed,patch))
+        assertNull(applyStructuredPatch(changed,patch))
+    }
+    @Test fun numericVerificationKeepsAllOtherMetadataExact() {
+        val original=withProperty(note(),"""{"kind":"number","value":0.0,"meta":{"revision":9007199254740992}}""")
+        val patch=request(original,"property",key="amount",value="1e-7")
+        val edited=applyStructuredPatch(original,patch)!!
+        val expected=structuredTargetToken(edited,patch)
+        val persisted=withProperty(edited,"""{"meta":{"revision":9007199254740992},"value":1e-7,"kind":"number"}""")
+        assertTrue(structuredPatchVerified(persisted,patch,expected))
+        val changed=withProperty(edited,"""{"meta":{"revision":9007199254740993},"value":1e-7,"kind":"number"}""")
+        assertFalse(structuredPatchVerified(changed,patch,expected))
+    }
+    @Test fun numericVerificationPreservesTheF64SignedZero() {
+        val original=withProperty(note(),"""{"kind":"number","value":0.0}""")
+        val patch=request(original,"property",key="amount",value="-0.0")
+        val edited=applyStructuredPatch(original,patch)!!
+        val expected=structuredTargetToken(edited,patch)
+        assertTrue(structuredPatchVerified(withProperty(edited,"""{"kind":"number","value":-0.0}"""),patch,expected))
+        assertFalse(structuredPatchVerified(withProperty(edited,"""{"kind":"number","value":0.0}"""),patch,expected))
+        assertNotEquals(patch.expectedValue,structuredTargetToken(edited,patch))
+    }
+    @Test fun ownDatabaseAndInheritedPropertiesAreReadOnly() {
+        val original=note()
+        val patch=request(original,"property",key="status",value="进行中")
+        for (metadata in listOf("parentId" to JsonPrimitive("database"),"database" to buildJsonObject {})) {
+            val page=JsonObject(original.document.knowledge!! + metadata)
+            assertFalse(page.structuredPropertiesEditable())
+            assertNull(applyStructuredPatch(original.copy(document=original.document.copy(knowledge=page)),patch))
+        }
+        assertTrue(JsonObject(original.document.knowledge!! + mapOf("parentId" to JsonNull,"database" to JsonNull)).structuredPropertiesEditable())
+    }
+    @Test fun inheritedPropertyProtectionKeepsBodyAndTodoEditingAvailable() {
+        val base=note()
+        val original=base.copy(document=base.document.copy(knowledge=JsonObject(base.document.knowledge!! + ("parentId" to JsonPrimitive("database")))))
+        val body=original.document.blocks.first()
+        val text=applyStructuredPatch(original,request(original,"text",body.id,value="新正文"))!!
+        assertEquals("新正文",text.document.blocks.first().text)
+        assertEquals(original.document.knowledge,text.document.knowledge)
+        val todo=original.document.blocks.first{it.knowledge.structuredText("kind")=="todo"}
+        val checked=applyStructuredPatch(original,request(original,"checked",todo.id,value="true"))!!
+        assertTrue(checked.document.blocks.first{it.id==todo.id}.knowledge.structuredFlag("checked"))
+        assertEquals(original.document.knowledge,checked.document.knowledge)
+    }
 }
 "####;

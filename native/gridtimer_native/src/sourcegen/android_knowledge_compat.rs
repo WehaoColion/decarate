@@ -1,3 +1,4 @@
+// v2.23.2.16 - Scope preset branches and reject missing, repeated or reinjected editor hooks.
 //! FlowUs gap batch: safe mobile structured-page edits, local folds and outline navigation.
 //! Keep the protected reader guard; never send advanced data through the flat editor.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/StructuredKnowledgeReader.kt";
@@ -8,7 +9,10 @@ pub const EDIT_TEST_PATH: &str = "com/ofairyo/gridtimer/data/StructuredNoteEditi
 
 fn replace_once(source: &mut String, before: &str, after: &str) -> Result<(), String> {
     if source.matches(before).count() != 1 {
-        return Err(format!("structured editing anchor missing or repeated: {}", before.lines().next().unwrap_or("")));
+        return Err(format!(
+            "structured editing anchor missing or repeated: {}",
+            before.lines().next().unwrap_or("")
+        ));
     }
     *source = source.replacen(before, after, 1);
     Ok(())
@@ -17,21 +21,30 @@ fn replace_once(source: &mut String, before: &str, after: &str) -> Result<(), St
 pub fn render(path: &str, base: &str) -> Result<String, String> {
     let mut source = base.to_owned();
     if path.ends_with("/TimerRepository.kt") {
+        if source.contains("    internal suspend fun applyStructuredNotePatch(") {
+            return Err("structured repository patch hook is already present".into());
+        }
         let anchor = "    suspend fun upsertNoteDurablyResult(\n";
         replace_once(&mut source, anchor, &format!("{REPOSITORY_WRITE}{anchor}"))?;
     } else if path.ends_with("/TimerViewModel.kt") {
+        if source.contains("    internal fun applyStructuredNotePatch(") {
+            return Err("structured view-model patch hook is already present".into());
+        }
         let anchor = "    fun upsertNoteAndFlush(\n";
         replace_once(&mut source, anchor, &format!("{VIEW_MODEL_WRITE}{anchor}"))?;
     } else if path.ends_with("/NoteStudioSheet.kt") {
         replace_once(&mut source,
             "internal enum class NoteDraftPreset {\n    BLANK,\n    CHECKLIST,\n    MEETING,\n    REVIEW\n}",
             "internal enum class NoteDraftPreset {\n    BLANK,\n    CHECKLIST,\n    MEETING,\n    REVIEW,\n    STRUCTURED\n}")?;
-        replace_once(&mut source,
-            "        NoteDraftPreset.BLANK -> NotePresetContent(\"\", \"\", \"amber\", false)",
-            "        NoteDraftPreset.STRUCTURED -> return com.ofairyo.gridtimer.data.buildStructuredMobileNote(folderId, now)\n        NoteDraftPreset.BLANK -> NotePresetContent(\"\", \"\", \"amber\", false)")?;
+        let preset_anchor = "internal fun buildPresetNote(\n    preset: NoteDraftPreset,\n    folderId: String? = null,\n    now: Long = System.currentTimeMillis()\n): NoteEntry {\n    val (title, body, accentSeed, markdownEnabled) = when (preset) {\n";
+        replace_once(&mut source, preset_anchor, &format!("{preset_anchor}        NoteDraftPreset.STRUCTURED -> return com.ofairyo.gridtimer.data.buildStructuredMobileNote(folderId, now)\n"))?;
+        let sticky_anchor = "internal fun buildStickyPresetNote(\n    preset: NoteDraftPreset,\n    folderId: String? = null,\n    now: Long = System.currentTimeMillis()\n): NoteEntry {\n    val (title, body, accentSeed, markdownEnabled) = when (preset) {\n";
+        replace_once(&mut source, sticky_anchor, &format!("{sticky_anchor}        NoteDraftPreset.STRUCTURED -> throw IllegalArgumentException(\"结构页只能在知识模块创建\")\n"))?;
         let anchor = "private fun NotePresetRow(\n    onCreatePreset: (NoteDraftPreset) -> Unit\n) {\n    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {";
         replace_once(&mut source, anchor, &format!("{anchor}{PRESET_CARD}"))?;
-    } else if path.ends_with("/NoteEditorUi.kt") || source.contains("internal fun NoteEditorContent(") {
+    } else if path.ends_with("/NoteEditorUi.kt")
+        || source.contains("internal fun NoteEditorContent(")
+    {
         let needle = ") {\n    val context = LocalContext.current\n    val focusManager = LocalFocusManager.current\n    val titleFocusRequester = remember { FocusRequester() }";
         let replacement = ") {\n    if (note.hasStructuredKnowledge()) {\n        val structuredWorkspace = LocalNoteMediaWorkspaceKey.current\n        EncryptedNoteSecureWindowEffect(note.encryption != null)\n        StructuredKnowledgeReader(note = note, onBack = onBack, onWrite = { patch, done ->\n            viewModel.applyStructuredNotePatch(patch, structuredWorkspace, done)\n        }, onPreviewImage = onRequestPreviewAttachment)\n        return\n    }\n    val context = LocalContext.current\n    val focusManager = LocalFocusManager.current\n    val titleFocusRequester = remember { FocusRequester() }";
         replace_once(&mut source, needle, replacement)?;
@@ -115,53 +128,36 @@ const REPOSITORY_WRITE: &str = r####"    internal suspend fun applyStructuredNot
 #[cfg(test)]
 mod tests {
     use super::*;
+
     fn source(path: &str) -> &'static str {
-        crate::kotlin_sources::SOURCES.iter().find(|s| s.path.ends_with(path)).unwrap().contents
+        crate::kotlin_sources::SOURCES
+            .iter()
+            .find(|s| s.path.ends_with(path))
+            .unwrap()
+            .contents
     }
+
     #[test]
-    fn all_real_entry_anchors_are_unique() {
-        for suffix in ["/NoteStudioSheet.kt", "/TimerRepository.kt", "/TimerViewModel.kt", "/NoteDocumentEditor.kt"] {
-            assert!(render(suffix, source(suffix)).is_ok(), "{suffix}");
+    fn real_structured_hooks_reject_missing_duplicate_and_reapplied_input() {
+        for (path, hook) in [
+            ("/TimerRepository.kt", "    suspend fun upsertNoteDurablyResult(\n"),
+            ("/TimerViewModel.kt", "    fun upsertNoteAndFlush(\n"),
+            ("/NoteStudioSheet.kt", "internal enum class NoteDraftPreset {\n    BLANK,\n    CHECKLIST,\n    MEETING,\n    REVIEW\n}"),
+            ("/NoteDocumentEditor.kt", ") {\n    val context = LocalContext.current\n    val focusManager = LocalFocusManager.current\n    val titleFocusRequester = remember { FocusRequester() }"),
+            ("/SmartisanNoteUi.kt", ") {\n    val context = androidx.compose.ui.platform.LocalContext.current\n    val workspaceKey = LocalNoteMediaWorkspaceKey.current"),
+        ] {
+            let base = source(path);
+            let once = render(path, base).expect(path);
+            assert!(render(path, &once).is_err(), "reapplied {path}");
+            assert!(render(path, &base.replace(hook, "missing hook")).is_err(), "missing {path}");
+            assert!(render(path, &format!("{base}\n{hook}")).is_err(), "duplicate {path}");
+        }
+        let path = "/NoteStudioSheet.kt";
+        for name in ["buildPresetNote", "buildStickyPresetNote"] {
+            let base = source(path).replace(&format!("internal fun {name}("), "missing preset(");
+            assert!(render(path, &base).is_err(), "missing {name}");
         }
     }
-    #[test]
-    fn duplicate_repository_anchor_is_rejected() {
-        let s = source("/TimerRepository.kt");
-        assert!(render("/TimerRepository.kt", &format!("{s}\n    suspend fun upsertNoteDurablyResult(\n")).is_err());
-    }
-    #[test]
-    fn mutation_is_inside_durable_transaction_before_note_upsert() {
-        let body = REPOSITORY_WRITE;
-        assert!(body.find("updateDataDetailed(").unwrap() < body.find("applyStructuredPatch(current, patch)").unwrap());
-        assert!(body.find("applyStructuredPatch(current, patch)").unwrap() < body.find("upsertNoteInData(").unwrap());
-        assert!(body.contains("publishAfterDurable = true"));
-    }
-    #[test]
-    fn repository_transform_does_not_rewrite_existing_methods() {
-        let s = source("/TimerRepository.kt");
-        assert_eq!(render("/TimerRepository.kt", s).unwrap().replacen(REPOSITORY_WRITE, "", 1), s);
-    }
-    #[test]
-    fn view_model_transform_preserves_existing_queue_and_save_methods() {
-        let s = source("/TimerViewModel.kt");
-        assert_eq!(render("/TimerViewModel.kt", s).unwrap().replacen(VIEW_MODEL_WRITE, "", 1), s);
-    }
-    #[test]
-    fn absent_or_second_editor_guard_is_rejected() {
-        let s = source("/NoteDocumentEditor.kt");
-        let result = render("/NoteDocumentEditor.kt", s).unwrap();
-        assert!(render("/NoteDocumentEditor.kt", &result).is_err());
-        assert!(render("/NoteDocumentEditor.kt", &s.replace("val titleFocusRequester = remember { FocusRequester() }", "missing")).is_err());
-    }
-    #[test]
-    fn new_document_preset_keeps_existing_four_presets() {
-        let result = render("/NoteStudioSheet.kt", source("/NoteStudioSheet.kt")).unwrap();
-        for name in ["BLANK", "CHECKLIST", "MEETING", "REVIEW", "STRUCTURED"] {
-            assert!(result.contains(&format!("NoteDraftPreset.{name}")));
-        }
-    }
-    #[test]
-    fn unrelated_files_remain_byte_identical() { assert_eq!(render("other.kt", "unchanged").unwrap(), "unchanged"); }
 }
 
 #[path = "structured_mobile_data.rs"]
@@ -319,7 +315,7 @@ internal fun StructuredKnowledgeReader(
                         val cell = value as? JsonObject
                         val label = when (key) { "status" -> "状态"; "priority" -> "优先级"; "date" -> "日期"; else -> key }
                         val writable = editable && cell?.structuredText("kind") in structuredPropertyKinds &&
-                            (page?.get("database") == null || page?.get("database") == JsonNull)
+                            page.structuredPropertiesEditable()
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Column(Modifier.weight(1f)) { Text(label, style = MaterialTheme.typography.labelMedium); Text(knowledgeCellText(value).ifBlank { "未填写" }) }
                             if (writable) TextButton(enabled = !saving, onClick = {
