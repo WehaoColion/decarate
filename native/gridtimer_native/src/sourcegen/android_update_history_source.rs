@@ -1,3 +1,6 @@
+// v2.23.2.20 - Repair old sticky visibility and update-history fallback.
+// v2.23.2.19 - Record sticky-note source navigation and current version.
+// v2.23.2.17 - Add the task Agent release history entry.
 // v2.23.2.16 - Record structured page editing with minute-level time.
 // v2.23.2.15 - Record local knowledge navigation with minute-level update time.
 // v2.23.2.14 - Record edit-first document entry and explicit temporary preview.
@@ -19,7 +22,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.16";
+pub const LATEST_VERSION: &str = "2.23.2.20";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -49,6 +52,36 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.20",
+        updatedAt = "2026-10-07 23:47",
+        summary = "修复更新记录缺失提示和旧便签无法完整查看的问题",
+        sections = listOf(
+            AndroidUpdateSection("便签列表与预览", listOf(
+                "知识页中的便签参考列表不再只显示前12条。现在会显示未删除便签总数，横向滑动即可查看全部便签，较早的便签也能直接打开。",
+                "旧格式便签预览读取完整原始正文，不再把无标题便签的首行当作标题后从正文中删掉。加密便签会明确显示锁定提示，不会误报成空便签。"
+            )),
+            AndroidUpdateSection("更新记录显示", listOf(
+                "更新记录优先显示与已安装版本完全匹配的说明。若构建版本暂时没有对应条目，会显示最近一条更新说明并提示版本不匹配；若记录为空，会显示明确状态，历史版本入口仍可查看。",
+                "本次安卓版本2.23.2.20，versionCode 22289；更新时间为北京时间2026-10-07 23:47。沿用原应用包名及正式签名，Windows客户端和同步服务版本不变。"
+            ))
+        )
+    ),
+    AndroidUpdateEntry(
+        version = "2.23.2.17",
+        updatedAt = "2026-10-07 19:28",
+        summary = "新增任务型 AI Agent，按本次授权知识页生成可编辑的新页面草稿",
+        sections = listOf(
+            AndroidUpdateSection("Agent 工作流程", listOf(
+                "知识问答加入任务 Agent。填写目标后，选择未加密知识页并查看接收方、模型、发送范围和调用上限；确认授权后，真实模型可通过受限工具检索、分段读取来源并提出新知识页草稿。",
+                "草稿与可选待办先在应用中展示，可继续编辑。只有用户再次确认并且应用核验持久化成功后才会创建新知识页；Agent 不会直接修改、覆盖或删除来源。"
+            )),
+            AndroidUpdateSection("安全边界与验收", listOf(
+                "首次版本只纳入用户所选的未加密知识页。加密页面、附件和其它应用数据不发送；取消或切换工作区后停止后续请求，未完成的草稿不能按成功保存。",
+                "安卓版本2.23.2.17，内部版本代码22286；沿用原包名和正式签名。Windows客户端与同步服务保持原版本。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.16",
         updatedAt = "2026-10-06 17:37",
@@ -524,3 +557,20 @@ internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
     )
 )
 "####;
+#[cfg(test)]
+mod tests {
+    use super::{CONTENTS, LATEST_VERSION};
+
+    #[test]
+    fn current_and_previous_android_release_entries_are_present() {
+        let versions = CONTENTS
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("version = ")?.strip_suffix(","))
+            .map(|version| version.trim_matches('"'))
+            .collect::<Vec<_>>();
+        assert_eq!(versions.first().copied(), Some(LATEST_VERSION));
+        assert_eq!(versions.get(1).copied(), Some("2.23.2.17"));
+        assert!(versions.contains(&"2.23.2.16"));
+        assert!(CONTENTS.contains("2026-10-07 23:47"));
+    }
+}

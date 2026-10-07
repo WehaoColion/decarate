@@ -1,3 +1,4 @@
+// v2.23.2.21 - Make empty sticky folder views recoverable and test filter resets.
 // v2.23.2 - Recover complete knowledge lists when native grouping is incomplete.
 // Android implementation and its JVM state tests are authored in this Rust generator.
 
@@ -143,6 +144,21 @@ internal fun recoverNoteCollectionPartition(
         }
     }
 }
+
+internal data class NoteCollectionFilterState(
+    val query: String,
+    val allQuickFilter: Boolean,
+    val selectedFolderId: String?
+) {
+    val hasActiveFilters: Boolean
+        get() = query.isNotBlank() || !allQuickFilter || selectedFolderId != null
+
+    fun showAll(): NoteCollectionFilterState = copy(
+        query = "",
+        allQuickFilter = true,
+        selectedFolderId = null
+    )
+}
 "####;
 
 pub const TEST_PATH: &str = "com/ofairyo/gridtimer/core/NoteCollectionRecoveryTest.kt";
@@ -231,6 +247,18 @@ class NoteCollectionRecoveryTest {
         assertFalse(isCompleteNoteOrder(intArrayOf(0, 1, 2, 4), 4))
         assertFalse(isCompleteNoteOrder(intArrayOf(-1, 1, 2, 3), 4))
         assertFalse(isCompleteNoteOrder(intArrayOf(), -1))
+    }
+
+    @Test fun selectedFolderEmptyStateCanReturnToAllStickyNotes() {
+        val scoped = NoteCollectionFilterState("", true, "AiProbe07136f6b")
+        assertTrue(scoped.hasActiveFilters)
+        assertEquals(NoteCollectionFilterState("", true, null), scoped.showAll())
+    }
+
+    @Test fun searchAndQuickFilterEmptyStatesAlsoExposeRecovery() {
+        assertTrue(NoteCollectionFilterState("old note", true, null).hasActiveFilters)
+        assertTrue(NoteCollectionFilterState("", false, null).hasActiveFilters)
+        assertFalse(NoteCollectionFilterState("", true, null).hasActiveFilters)
     }
 }
 "####;
