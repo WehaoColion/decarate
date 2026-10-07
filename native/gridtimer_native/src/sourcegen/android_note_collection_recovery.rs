@@ -1,10 +1,15 @@
 // v2.23.2.21 - Make empty sticky folder views recoverable and test filter resets.
 // v2.23.2 - Recover complete knowledge lists when native grouping is incomplete.
 // Android implementation and its JVM state tests are authored in this Rust generator.
+// Sticky-note quick presets also own the collapsed search affordance.
 
 const BRIDGE_PATH: &str = "com/ofairyo/gridtimer/core/NativeOptimizerBridge.kt";
+const STUDIO_PATH: &str = "com/ofairyo/gridtimer/ui/NoteStudioSheet.kt";
 
 pub fn render(path: &str, source: &str) -> Result<String, String> {
+    if path == STUDIO_PATH {
+        return render_sticky_search(source);
+    }
     if path != BRIDGE_PATH {
         return Ok(source.to_owned());
     }
@@ -34,6 +39,14 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
     Ok(rendered)
 }
 
+fn render_sticky_search(source: &str) -> Result<String, String> {
+    let mut rendered = source.to_owned();
+    replace_once(&mut rendered, STICKY_PRESET_CALL, STICKY_PRESET_CALL_WITH_SEARCH)?;
+    replace_once(&mut rendered, STICKY_SEARCH_ITEM, TRASH_SEARCH_ITEM)?;
+    replace_once(&mut rendered, STICKY_PRESET_ROW, STICKY_PRESET_ROW_WITH_SEARCH)?;
+    Ok(rendered)
+}
+
 fn replace_once(source: &mut String, old: &str, new: &str) -> Result<(), String> {
     if source.matches(old).count() != 1 {
         return Err(format!(
@@ -43,6 +56,152 @@ fn replace_once(source: &mut String, old: &str, new: &str) -> Result<(), String>
     *source = source.replacen(old, new, 1);
     Ok(())
 }
+
+const STICKY_PRESET_CALL: &str = r####"                StickyNotePresetRow(
+                    onCreatePreset = onCreateNote
+                )"####;
+
+const STICKY_PRESET_CALL_WITH_SEARCH: &str = r####"                StickyNotePresetRow(
+                    query = query,
+                    onQueryChange = onQueryChange,
+                    onCreatePreset = onCreateNote
+                )"####;
+
+const STICKY_SEARCH_ITEM: &str = r####"        item {
+            SmartisanTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                label = if (trashMode) "搜索回收站" else "搜索便签",
+                hint = "标题、正文、文件夹都能搜",
+                maxLength = 64,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }"####;
+
+const TRASH_SEARCH_ITEM: &str = r####"        if (trashMode) {
+            item {
+                SmartisanTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    label = "搜索回收站",
+                    hint = "标题、正文、文件夹都能搜",
+                    maxLength = 64,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }"####;
+
+const STICKY_PRESET_ROW: &str = r####"@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StickyNotePresetRow(
+    onCreatePreset: (NoteDraftPreset) -> Unit
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ChoicePill(
+            text = "闪念",
+            selected = false,
+            accent = notesAccentColor,
+            onClick = { onCreatePreset(NoteDraftPreset.BLANK) }
+        )
+        ChoicePill(
+            text = "待办",
+            selected = false,
+            accent = accentFor("green"),
+            onClick = { onCreatePreset(NoteDraftPreset.CHECKLIST) }
+        )
+        ChoicePill(
+            text = "会议",
+            selected = false,
+            accent = accentFor("blue"),
+            onClick = { onCreatePreset(NoteDraftPreset.MEETING) }
+        )
+        ChoicePill(
+            text = "复盘",
+            selected = false,
+            accent = accentFor("red"),
+            onClick = { onCreatePreset(NoteDraftPreset.REVIEW) }
+        )
+    }
+}"####;
+
+const STICKY_PRESET_ROW_WITH_SEARCH: &str = r####"@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StickyNotePresetRow(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onCreatePreset: (NoteDraftPreset) -> Unit
+) {
+    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+    val searchVisible = searchExpanded || query.isNotEmpty()
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ChoicePill(
+                text = "闪念",
+                selected = false,
+                accent = notesAccentColor,
+                onClick = { onCreatePreset(NoteDraftPreset.BLANK) }
+            )
+            ChoicePill(
+                text = "待办",
+                selected = false,
+                accent = accentFor("green"),
+                onClick = { onCreatePreset(NoteDraftPreset.CHECKLIST) }
+            )
+            ChoicePill(
+                text = "会议",
+                selected = false,
+                accent = accentFor("blue"),
+                onClick = { onCreatePreset(NoteDraftPreset.MEETING) }
+            )
+            ChoicePill(
+                text = "复盘",
+                selected = false,
+                accent = accentFor("red"),
+                onClick = { onCreatePreset(NoteDraftPreset.REVIEW) }
+            )
+            ChoicePill(
+                text = "搜索",
+                selected = searchVisible,
+                accent = notesAccentColor,
+                onClick = {
+                    searchExpanded = if (query.isNotEmpty()) true else !searchExpanded
+                }
+            )
+        }
+
+        if (searchVisible) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { onQueryChange(it.take(64)) },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = {
+                    Text(
+                        text = "标题、正文、文件夹都能搜",
+                        maxLines = 1
+                    )
+                },
+                trailingIcon = {
+                    Text(
+                        text = "${query.length}/64",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp)
+            )
+        }
+    }
+}"####;
 
 pub const HELPER_PATH: &str = "com/ofairyo/gridtimer/core/NoteCollectionPartition.kt";
 pub const HELPER_CONTENTS: &str = r####"package com.ofairyo.gridtimer.core
@@ -284,5 +443,24 @@ mod tests {
         );
         assert!(!rendered.contains("parseNativeNoteCollectionSections("));
         assert_eq!(render("unrelated.kt", "sentinel").unwrap(), "sentinel");
+    }
+
+    #[test]
+    fn sticky_search_is_integrated_with_quick_presets() {
+        let studio = super::super::kotlin_sources::SOURCES
+            .iter()
+            .find(|source| source.path == STUDIO_PATH)
+            .unwrap();
+        let rendered = render(studio.path, studio.contents).unwrap();
+        assert!(rendered.contains("text = \"搜索\""));
+        assert!(rendered.contains("val searchVisible = searchExpanded || query.isNotEmpty()"));
+        assert!(rendered.contains("onValueChange = { onQueryChange(it.take(64)) }"));
+        assert!(rendered.contains("text = \"${query.length}/64\""));
+        assert!(rendered.contains("shape = RoundedCornerShape(18.dp)"));
+        assert!(rendered.contains("label = \"搜索回收站\""));
+        assert!(!rendered.contains(
+            "label = if (trashMode) \"搜索回收站\" else \"搜索便签\""
+        ));
+        assert!(!rendered.contains(STICKY_SEARCH_ITEM));
     }
 }
