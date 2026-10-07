@@ -1,3 +1,4 @@
+// v2.23.2.20 - Repair old sticky visibility and update-history fallback.
 // v2.23.2.19 - Record sticky-note source navigation and current version.
 // v2.23.2.17 - Add the task Agent release history entry.
 // v2.23.2.16 - Record structured page editing with minute-level time.
@@ -21,7 +22,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.19";
+pub const LATEST_VERSION: &str = "2.23.2.20";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -52,17 +53,17 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
     AndroidUpdateEntry(
-        version = "2.23.2.19",
-        updatedAt = "2026-10-07 21:31",
-        summary = "修复任务 Agent 中便签来源无法打开，并完整记录当前版本更新",
+        version = "2.23.2.20",
+        updatedAt = "2026-10-07 23:47",
+        summary = "修复更新记录缺失提示和旧便签无法完整查看的问题",
         sections = listOf(
-            AndroidUpdateSection("便签与知识页", listOf(
-                "任务 Agent 可逐条选择未删除、未加密的便签和知识页。列表及发送预览标注资料类型；点击结果中的知识页打开原页面，点击便签打开只读预览。",
-                "所有资料仍须由用户逐条选择、展开核对完整内容并勾选授权后才发送。原始便签和知识页保持只读；附件、加密内容、财务、计时、归档数据、密钥和诊断资料不在范围内。"
+            AndroidUpdateSection("便签列表与预览", listOf(
+                "知识页中的便签参考列表不再只显示前12条。现在会显示未删除便签总数，横向滑动即可查看全部便签，较早的便签也能直接打开。",
+                "旧格式便签预览读取完整原始正文，不再把无标题便签的首行当作标题后从正文中删掉。加密便签会明确显示锁定提示，不会误报成空便签。"
             )),
-            AndroidUpdateSection("版本记录", listOf(
-                "应用内更新记录包含当前版本和上一个已发布版本2.23.2.17，当前版本说明可正常显示。未发布的中间候选版本不作为历史发布记录展示。",
-                "当前安卓版本2.23.2.19，内部版本代码22288；更新时间为北京时间2026-10-07 21:31。沿用原应用包名和正式签名，Windows正式版本不变。"
+            AndroidUpdateSection("更新记录显示", listOf(
+                "更新记录优先显示与已安装版本完全匹配的说明。若构建版本暂时没有对应条目，会显示最近一条更新说明并提示版本不匹配；若记录为空，会显示明确状态，历史版本入口仍可查看。",
+                "本次安卓版本2.23.2.20，versionCode 22289；更新时间为北京时间2026-10-07 23:47。沿用原应用包名及正式签名，Windows客户端和同步服务版本不变。"
             ))
         )
     ),
@@ -570,6 +571,6 @@ mod tests {
         assert_eq!(versions.first().copied(), Some(LATEST_VERSION));
         assert_eq!(versions.get(1).copied(), Some("2.23.2.17"));
         assert!(versions.contains(&"2.23.2.16"));
-        assert!(CONTENTS.contains("2026-10-07 21:31"));
+        assert!(CONTENTS.contains("2026-10-07 23:47"));
     }
 }

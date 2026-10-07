@@ -1,3 +1,4 @@
+// v2.23.2.20 - Show every sticky note and preserve complete legacy-note previews.
 // v2.23.2.19 - Open selected Agent sticky-note sources and retain clear source labels.
 // v2.23.2.17 - Add a bounded task Agent with explicit scope and durable draft handoff.
 // v2.23.2.6 - Display AI answers with offline Markdown and formula layout.
@@ -315,6 +316,30 @@ fn replace(source: &mut String, before: &str, after: &str) -> Result<(), String>
     Ok(())
 }
 
+fn render_legacy_sticky_source_fixes(source: &mut String) -> Result<(), String> {
+    replace(
+        source,
+        "import com.ofairyo.gridtimer.data.plainContent\n",
+        "import com.ofairyo.gridtimer.data.plainContent\nimport com.ofairyo.gridtimer.data.plainText\nimport com.ofairyo.gridtimer.data.resolvedDocument\n",
+    )?;
+    replace(
+        source,
+        "appData.sortedActiveStickyNotes().take(12)",
+        "appData.sortedActiveStickyNotes()",
+    )?;
+    replace(
+        source,
+        "text = \"这里能看便签内容，也能把它收进文档页面。\",",
+        "text = \"共 ${stickySources.size} 条，横向滑动可查看全部；点按可看内容或收进文档页面。\",",
+    )?;
+    replace(
+        source,
+        "text = note.plainContent().ifBlank { \"这张便签还没有内容。\" },",
+        "text = when {\n                    note.isEncryptionLocked() -> \"这张便签已加密，请先在便签页解锁后再查看原文。\"\n                    else -> note.resolvedDocument().plainText(preserveStructure = true).ifBlank { \"这张便签还没有内容。\" }\n                },",
+    )?;
+    Ok(())
+}
+
 pub fn render(path: &str, source: &str) -> Result<String, String> {
     let mut source = source.to_owned();
     match path {
@@ -428,6 +453,7 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
                 "请先在“我的”里填写 OpenAI API Key",
                 "请先在“我的 → AI”中配置密钥、接口和模型。",
             );
+            render_legacy_sticky_source_fixes(&mut source)?;
         }
         "com/ofairyo/gridtimer/ui/SmartisanNoteUi.kt" => {
             source = source.replace(
@@ -438,6 +464,34 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
         _ => {}
     }
     Ok(source)
+}
+
+#[cfg(test)]
+mod sticky_source_render_tests {
+    use super::render_legacy_sticky_source_fixes;
+
+    #[test]
+    fn legacy_sticky_references_are_complete_and_preview_keeps_full_text() {
+        let mut source = [
+            "import com.ofairyo.gridtimer.data.plainContent",
+            "val stickySources = appData.sortedActiveStickyNotes().take(12)",
+            "text = \"这里能看便签内容，也能把它收进文档页面。\",",
+            "text = note.plainContent().ifBlank { \"这张便签还没有内容。\" },",
+        ]
+        .join("\n");
+
+        render_legacy_sticky_source_fixes(&mut source).unwrap();
+
+        assert!(source.contains("appData.sortedActiveStickyNotes()"));
+        assert!(!source.contains(".take(12)"));
+        assert!(source.contains("横向滑动可查看全部"));
+        assert!(source.contains("${stickySources.size}"));
+        assert!(source.contains("note.isEncryptionLocked()"));
+        assert!(source.contains("import com.ofairyo.gridtimer.data.plainText"));
+        assert!(source.contains("import com.ofairyo.gridtimer.data.resolvedDocument"));
+        assert!(source.contains("note.resolvedDocument().plainText(preserveStructure = true)"));
+        assert!(!source.contains("text = note.plainContent()"));
+    }
 }
 
 const KNOWLEDGE_DIALOG: &str = r####"private fun buildKnowledgeAgentDraftNote(

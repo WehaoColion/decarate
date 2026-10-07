@@ -1,3 +1,4 @@
+// v2.23.2.20 - Keep update history visible when versions do not match.
 // v2.23.2.5 - Explain direct AI questions and knowledge sources without coupling account sync.
 // v2.23.2.3 - Show saved connection state and direct AI feature entry points.
 // v2.23.2.2 - Add DeepSeek setup and guarded synthetic connection tests.
@@ -842,12 +843,17 @@ private fun AiFeatureEntry(title: String, detail: String, action: String, enable
     }
 }
 
+internal fun selectCurrentAndroidUpdateEntry(
+    entries: List<AndroidUpdateEntry>,
+    installedVersion: String
+): AndroidUpdateEntry? = entries.firstOrNull { it.version == installedVersion } ?: entries.firstOrNull()
+
 @Composable
 internal fun AndroidUpdateHistorySection() {
     var historyExpanded by rememberSaveable { mutableStateOf(false) }
     var previousVersionsOpen by rememberSaveable { mutableStateOf(false) }
-    val currentEntry = androidUpdateHistory.firstOrNull { it.version == BuildConfig.VERSION_NAME }
-    val previousEntries = androidUpdateHistory.filter { it.version != BuildConfig.VERSION_NAME }
+    val currentEntry = selectCurrentAndroidUpdateEntry(androidUpdateHistory, BuildConfig.VERSION_NAME)
+    val previousEntries = androidUpdateHistory.filter { it.version != currentEntry?.version }
 
     Surface(
         modifier = Modifier
@@ -901,8 +907,17 @@ internal fun AndroidUpdateHistorySection() {
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    currentEntry?.let { entry ->
-                        AndroidUpdateHistoryEntry(entry, initiallyExpanded = true)
+                    if (currentEntry == null) {
+                        Text("当前版本暂无更新说明，历史版本记录仍可查看。", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        if (currentEntry.version != BuildConfig.VERSION_NAME) {
+                            Text(
+                                "当前版本说明暂缺，先显示最近记录版本 " + currentEntry.version + "。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        AndroidUpdateHistoryEntry(currentEntry, initiallyExpanded = true)
                     }
                     if (previousEntries.isNotEmpty()) {
                         Surface(
@@ -1415,6 +1430,17 @@ class AiConnectionControllerTest {
         assertEquals("test-key", deepSeek.apiKey)
         assertEquals("deepseek-flash", deepSeek.model)
     }
+    @Test fun updateHistoryFallsBackToNewestWhenInstalledVersionHasNoEntry() {
+        val newest = AndroidUpdateEntry("2.23.2.20", "2026-10-07 23:47", "当前版本", emptyList())
+        val older = AndroidUpdateEntry("2.23.2.17", "2026-10-07 19:28", "上一版", emptyList())
+        val entries = listOf(newest, older)
+
+        assertEquals(newest, selectCurrentAndroidUpdateEntry(entries, "2.23.2.20"))
+        assertEquals(newest, selectCurrentAndroidUpdateEntry(entries, "2.23.2.21"))
+        assertEquals(older, selectCurrentAndroidUpdateEntry(entries.drop(1), "2.23.2.20"))
+        assertNull(selectCurrentAndroidUpdateEntry(emptyList(), "2.23.2.20"))
+    }
+
     @Test fun actualFeatureEntryRequiresSavedConfigButNotSuccessfulProbe() {
         val config = configured()
         val state = AiConnectionController(config)
@@ -1430,6 +1456,18 @@ class AiConnectionControllerTest {
 #[cfg(test)]
 mod tests {
     use super::CONTENTS;
+
+    #[test]
+    fn update_history_never_hides_notes_when_build_version_differs() {
+        assert!(CONTENTS.contains(
+            "entries.firstOrNull { it.version == installedVersion } ?: entries.firstOrNull()"
+        ));
+        assert!(CONTENTS.contains(
+            "selectCurrentAndroidUpdateEntry(androidUpdateHistory, BuildConfig.VERSION_NAME)"
+        ));
+        assert!(CONTENTS.contains("当前版本说明暂缺，先显示最近记录版本"));
+        assert!(CONTENTS.contains("当前版本暂无更新说明"));
+    }
 
     #[test]
     fn my_page_keeps_account_appearance_language_and_ai_sections() {
