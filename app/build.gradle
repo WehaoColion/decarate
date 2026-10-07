@@ -1,3 +1,4 @@
+// v2.23.2.21 - Align the sticky note summary with active filters and restore access to all notes.
 // v2.23.2.17 - Add a bounded Android AI Agent workflow.
 // v2.23.2.15 - Add local knowledge links, backlinks, tags and search.
 // v2.23.2.14 - Open documents in editing mode; make preview an explicit choice.
@@ -144,8 +145,8 @@ android {
         applicationId 'com.ofairyo.gridtimer'
         minSdk 26
         targetSdk 34
-        versionCode 22289
-        versionName '2.23.2.20'
+        versionCode 22290
+        versionName '2.23.2.21'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         manifestPlaceholders.xiaomiAppId = ''
         manifestPlaceholders.xiaomiBuildTypeDebug = 'true'

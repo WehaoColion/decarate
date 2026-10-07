@@ -1,3 +1,4 @@
+// v2.23.2.21 - Keep recent sticky summaries in the visible list scope.
 // v2.23.2.6 - Preview Markdown and mathematical formulas without rewriting note source.
 // v2.23.2.5 - Bridge Android direct questions separately and allow empty knowledge collections.
 // v2.23.2.4 - Expose the actual editor focus and interactions to the question dialog.
@@ -51641,9 +51642,6 @@ internal fun StickyNoteStudioSheet(
     val trashedNotes = remember(appData.notes) {
         appData.sortedTrashedNotes().filter { note -> note.kind == NoteEntryKind.STICKY }
     }
-    val latestActiveNote = remember(appData.notes) {
-        appData.activeStickyNotes().maxByOrNull(NoteEntry::updatedAtEpochMillis)
-    }
     val quickFilteredActiveNotes = remember(activeNotes, quickFilter) {
         activeNotes.filter { note -> note.matchesQuickFilter(quickFilter) }
     }
@@ -51651,6 +51649,9 @@ internal fun StickyNoteStudioSheet(
         quickFilteredActiveNotes.filter { note ->
             noteMatchesQuery(query = query, note = note, folder = appData.findNoteFolder(note.folderId))
         }
+    }
+    val latestActiveNote = remember(filteredActiveNotes) {
+        filteredActiveNotes.maxByOrNull(NoteEntry::updatedAtEpochMillis)
     }
     val activeSections = remember(filteredActiveNotes, now) {
         buildNoteCollectionSections(filteredActiveNotes, now)
@@ -51740,6 +51741,16 @@ internal fun StickyNoteStudioSheet(
                     onSelectQuickFilter = { quickFilter = it },
                     onManageFolders = { folderManagerVisible = true },
                     onSelectFolder = viewModel::selectNoteFolder,
+                    onShowAllNotes = {
+                        val resetFilters = com.ofairyo.gridtimer.core.NoteCollectionFilterState(
+                            query = query,
+                            allQuickFilter = quickFilter == NoteQuickFilter.ALL,
+                            selectedFolderId = selectedFolderId
+                        ).showAll()
+                        query = resetFilters.query
+                        quickFilter = NoteQuickFilter.ALL
+                        viewModel.selectNoteFolder(resetFilters.selectedFolderId)
+                    },
                     onSelectSortMode = viewModel::setNoteSortMode,
                     onCreateNote = { preset ->
                         val freshNote = buildStickyPresetNote(
@@ -52950,6 +52961,7 @@ private fun StickyNoteCollectionContent(
     onSelectQuickFilter: (NoteQuickFilter) -> Unit,
     onManageFolders: () -> Unit,
     onSelectFolder: (String?) -> Unit,
+    onShowAllNotes: () -> Unit,
     onSelectSortMode: (NoteSortMode) -> Unit,
     onCreateNote: (NoteDraftPreset) -> Unit,
     onOpenNote: (NoteEntry) -> Unit,
@@ -52961,6 +52973,11 @@ private fun StickyNoteCollectionContent(
     showSheetHandle: Boolean = true
 ) {
     var setupExpanded by rememberSaveable { mutableStateOf(false) }
+    val collectionFilterState = com.ofairyo.gridtimer.core.NoteCollectionFilterState(
+        query = query,
+        allQuickFilter = quickFilter == NoteQuickFilter.ALL,
+        selectedFolderId = selectedFolderId
+    )
 
     LazyColumn(
         modifier = Modifier
@@ -53072,18 +53089,18 @@ private fun StickyNoteCollectionContent(
                     title = when {
                         query.isNotBlank() -> "没有找到匹配内容"
                         quickFilter != NoteQuickFilter.ALL -> "这个视角里还没有便签"
+                        selectedFolderId != null -> "这个文件夹里还没有便签"
                         else -> "这里还没有便签"
                     },
-                    description = if (query.isBlank()) {
-                        if (quickFilter == NoteQuickFilter.ALL) {
-                            "点新建开始。"
-                        } else {
-                            "换个筛选或新建。"
-                        }
-                    } else {
-                        "换个词再搜。"
+                    description = when {
+                        query.isNotBlank() -> "换个词再搜。"
+                        quickFilter != NoteQuickFilter.ALL -> "换个筛选，也可以查看全部便签。"
+                        selectedFolderId != null -> "当前文件夹没有便签，可以查看全部便签。"
+                        else -> "点新建开始。"
                     },
-                    accent = accent
+                    accent = accent,
+                    actionLabel = "查看全部便签".takeIf { collectionFilterState.hasActiveFilters },
+                    onAction = onShowAllNotes.takeIf { collectionFilterState.hasActiveFilters }
                 )
             }
         }
@@ -53302,7 +53319,7 @@ private fun StickyNoteViewSummary(
             ) {
                 MiniChromeBadge(label = filterLabel, accent = notesAccentColor)
                 selectedFolder?.let { folder ->
-                    MiniChromeBadge(label = folder.name, accent = accentFor("blue"))
+                    MiniChromeBadge(label = "文件夹：${folder.name}", accent = accentFor("blue"))
                 }
                 if (sortMode != NoteSortMode.UPDATED_DESC) {
                     MiniChromeBadge(label = sortLabel, accent = accentFor("teal"))
@@ -54085,7 +54102,9 @@ private fun TrashedSummaryCard(
 private fun NoteEmptyCard(
     title: String,
     description: String,
-    accent: Color
+    accent: Color,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
 ) {
     FlowusPanel(
         accent = accent,
@@ -54107,6 +54126,14 @@ private fun NoteEmptyCard(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
                 )
             )
+            if (actionLabel != null && onAction != null) {
+                CapsuleAction(
+                    text = actionLabel,
+                    icon = Icons.Rounded.FolderOpen,
+                    accent = accent,
+                    onClick = onAction
+                )
+            }
         }
     }
 }
