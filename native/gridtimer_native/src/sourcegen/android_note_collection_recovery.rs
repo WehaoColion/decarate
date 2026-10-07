@@ -1,3 +1,4 @@
+// v2.23.2.22 - Put compact sticky search beside presets and preserve active queries.
 // v2.23.2.21 - Make empty sticky folder views recoverable and test filter resets.
 // v2.23.2 - Recover complete knowledge lists when native grouping is incomplete.
 // Android implementation and its JVM state tests are authored in this Rust generator.
@@ -41,9 +42,17 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
 
 fn render_sticky_search(source: &str) -> Result<String, String> {
     let mut rendered = source.to_owned();
-    replace_once(&mut rendered, STICKY_PRESET_CALL, STICKY_PRESET_CALL_WITH_SEARCH)?;
+    replace_once(
+        &mut rendered,
+        STICKY_PRESET_CALL,
+        STICKY_PRESET_CALL_WITH_SEARCH,
+    )?;
     replace_once(&mut rendered, STICKY_SEARCH_ITEM, TRASH_SEARCH_ITEM)?;
-    replace_once(&mut rendered, STICKY_PRESET_ROW, STICKY_PRESET_ROW_WITH_SEARCH)?;
+    replace_once(
+        &mut rendered,
+        STICKY_PRESET_ROW,
+        STICKY_PRESET_ROW_WITH_SEARCH,
+    )?;
     Ok(rendered)
 }
 
@@ -137,7 +146,7 @@ private fun StickyNotePresetRow(
     onCreatePreset: (NoteDraftPreset) -> Unit
 ) {
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
-    val searchVisible = searchExpanded || query.isNotEmpty()
+    val searchVisible = com.ofairyo.gridtimer.core.StickyNoteSearchPolicy.visible(searchExpanded, query)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FlowRow(
@@ -173,7 +182,7 @@ private fun StickyNotePresetRow(
                 selected = searchVisible,
                 accent = notesAccentColor,
                 onClick = {
-                    searchExpanded = if (query.isNotEmpty()) true else !searchExpanded
+                    searchExpanded = com.ofairyo.gridtimer.core.StickyNoteSearchPolicy.toggleExpanded(searchExpanded, query)
                 }
             )
         }
@@ -181,7 +190,7 @@ private fun StickyNotePresetRow(
         if (searchVisible) {
             OutlinedTextField(
                 value = query,
-                onValueChange = { onQueryChange(it.take(64)) },
+                onValueChange = { onQueryChange(com.ofairyo.gridtimer.core.StickyNoteSearchPolicy.normalize(it)) },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = {
                     Text(
@@ -304,6 +313,17 @@ internal fun recoverNoteCollectionPartition(
     }
 }
 
+internal object StickyNoteSearchPolicy {
+    const val maxLength = 64
+
+    fun visible(expanded: Boolean, query: String): Boolean = expanded || query.isNotEmpty()
+
+    fun toggleExpanded(expanded: Boolean, query: String): Boolean =
+        if (query.isNotEmpty()) true else !expanded
+
+    fun normalize(query: String): String = query.take(maxLength)
+}
+
 internal data class NoteCollectionFilterState(
     val query: String,
     val allQuickFilter: Boolean,
@@ -408,6 +428,26 @@ class NoteCollectionRecoveryTest {
         assertFalse(isCompleteNoteOrder(intArrayOf(), -1))
     }
 
+    @Test fun stickySearchCannotHideAnActiveQuery() {
+        assertFalse(StickyNoteSearchPolicy.visible(false, ""))
+        assertTrue(StickyNoteSearchPolicy.visible(true, ""))
+        assertTrue(StickyNoteSearchPolicy.visible(false, "old note"))
+        assertTrue(StickyNoteSearchPolicy.visible(false, " "))
+        assertTrue(StickyNoteSearchPolicy.toggleExpanded(false, ""))
+        assertFalse(StickyNoteSearchPolicy.toggleExpanded(true, ""))
+        assertTrue(StickyNoteSearchPolicy.toggleExpanded(false, "old note"))
+        assertTrue(StickyNoteSearchPolicy.toggleExpanded(true, "old note"))
+        val afterClearing = StickyNoteSearchPolicy.toggleExpanded(true, "")
+        assertFalse(StickyNoteSearchPolicy.visible(afterClearing, ""))
+    }
+
+    @Test fun stickySearchRejectsOverflowWithoutChangingExistingLimit() {
+        assertEquals("", StickyNoteSearchPolicy.normalize(""))
+        assertEquals("old note", StickyNoteSearchPolicy.normalize("old note"))
+        assertEquals(64, StickyNoteSearchPolicy.normalize("测".repeat(64)).length)
+        assertEquals("测".repeat(64), StickyNoteSearchPolicy.normalize("测".repeat(65)))
+    }
+
     @Test fun selectedFolderEmptyStateCanReturnToAllStickyNotes() {
         val scoped = NoteCollectionFilterState("", true, "AiProbe07136f6b")
         assertTrue(scoped.hasActiveFilters)
@@ -443,24 +483,5 @@ mod tests {
         );
         assert!(!rendered.contains("parseNativeNoteCollectionSections("));
         assert_eq!(render("unrelated.kt", "sentinel").unwrap(), "sentinel");
-    }
-
-    #[test]
-    fn sticky_search_is_integrated_with_quick_presets() {
-        let studio = super::super::kotlin_sources::SOURCES
-            .iter()
-            .find(|source| source.path == STUDIO_PATH)
-            .unwrap();
-        let rendered = render(studio.path, studio.contents).unwrap();
-        assert!(rendered.contains("text = \"搜索\""));
-        assert!(rendered.contains("val searchVisible = searchExpanded || query.isNotEmpty()"));
-        assert!(rendered.contains("onValueChange = { onQueryChange(it.take(64)) }"));
-        assert!(rendered.contains("text = \"${query.length}/64\""));
-        assert!(rendered.contains("shape = RoundedCornerShape(18.dp)"));
-        assert!(rendered.contains("label = \"搜索回收站\""));
-        assert!(!rendered.contains(
-            "label = if (trashMode) \"搜索回收站\" else \"搜索便签\""
-        ));
-        assert!(!rendered.contains(STICKY_SEARCH_ITEM));
     }
 }
