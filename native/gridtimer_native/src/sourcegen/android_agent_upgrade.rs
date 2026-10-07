@@ -22,16 +22,6 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
         "    var agentTrace by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf<List<String>>(emptyList()) }\n    var agentPlan by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf<List<String>>(emptyList()) }\n    var agentVerification by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf<List<String>>(emptyList()) }\n    var agentVerificationPassed by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf(false) }\n    var agentHumanEdited by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf(false) }\n    var agentDeepReview by rememberSaveable(workspaceKey, identity, priorityNoteId) { mutableStateOf(true) }\n    val agentSelectedIds =",
     )?;
 
-    let reset = "agentResultSources = emptyList(); agentTrace = emptyList()";
-    let reset_count = rendered.matches(reset).count();
-    if reset_count != 2 {
-        return Err(format!("expected two Agent reset anchors, found {reset_count}"));
-    }
-    rendered = rendered.replace(
-        reset,
-        "agentResultSources = emptyList(); agentTrace = emptyList(); agentPlan = emptyList(); agentVerification = emptyList(); agentVerificationPassed = false; agentHumanEdited = false",
-    );
-
     replace_once(
         &mut rendered,
         "        val scopeJson = JSONObject().put(\"question\", safeQuestion).put(\"documents\", JSONArray().apply {",
@@ -41,8 +31,18 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
     replace_once(
         &mut rendered,
         "        agentResultSources = emptyList(); agentTrace = emptyList(); statusText = \"正在连接 ${runConfiguration.recipientHost}，最多执行 6 次模型请求。\"",
-        "        agentResultSources = emptyList(); agentTrace = emptyList(); agentPlan = emptyList(); agentVerification = emptyList(); agentVerificationPassed = false; agentHumanEdited = false\n        statusText = if (agentDeepReview) \"正在连接 ${runConfiguration.recipientHost}；首轮完成后将自动进行第二阶段深度核验。\" else \"正在连接 ${runConfiguration.recipientHost}，最多执行 6 次模型请求。\"",
+        "        agentResultSources = emptyList(); agentPlan = emptyList(); agentTrace = emptyList(); agentVerification = emptyList(); agentVerificationPassed = false; agentHumanEdited = false\n        statusText = if (agentDeepReview) \"正在连接 ${runConfiguration.recipientHost}；首轮完成后将自动进行第二阶段深度核验。\" else \"正在连接 ${runConfiguration.recipientHost}，最多执行 6 次模型请求。\"",
     )?;
+
+    let reset = "agentResultSources = emptyList(); agentTrace = emptyList()";
+    let reset_count = rendered.matches(reset).count();
+    if reset_count != 2 {
+        return Err(format!("expected two Agent reset anchors after request setup, found {reset_count}"));
+    }
+    rendered = rendered.replace(
+        reset,
+        "agentResultSources = emptyList(); agentTrace = emptyList(); agentPlan = emptyList(); agentVerification = emptyList(); agentVerificationPassed = false; agentHumanEdited = false",
+    );
 
     replace_once(
         &mut rendered,
