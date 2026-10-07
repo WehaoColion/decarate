@@ -145,6 +145,16 @@ fn run() -> io::Result<()> {
     if let Some(unit_test_output_root) = unit_test_output_root {
         write_source(
             &unit_test_output_root,
+            android_knowledge_compat::TEST_PATH,
+            android_knowledge_compat::TEST_CONTENTS,
+        )?;
+        write_source(
+            &unit_test_output_root,
+            android_knowledge_compat::EDIT_TEST_PATH,
+            android_knowledge_compat::EDIT_TEST_CONTENTS,
+        )?;
+        write_source(
+            &unit_test_output_root,
             android_knowledge_navigation::TEST_PATH,
             android_knowledge_navigation::TEST_CONTENTS,
         )?;
@@ -255,6 +265,17 @@ fn run() -> io::Result<()> {
         &output_root,
         android_knowledge_navigation::UI_PATH,
         android_knowledge_navigation::UI_CONTENTS,
+    )?;
+
+    write_source(
+        &output_root,
+        android_knowledge_compat::POLICY_PATH,
+        android_knowledge_compat::POLICY_CONTENTS,
+    )?;
+    write_source(
+        &output_root,
+        android_knowledge_compat::EDIT_PATH,
+        android_knowledge_compat::EDIT_CONTENTS,
     )?;
 
     for source in kotlin_sources::SOURCES {

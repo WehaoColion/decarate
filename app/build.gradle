@@ -1,3 +1,4 @@
+// v2.23.2.16 - Add safe structured page editing.
 // v2.23.2.15 - Add local knowledge links, backlinks, tags and search.
 // v2.23.2.14 - Open documents in editing mode; make preview an explicit choice.
 // v2.23.2.13 - Center document text blocks while preserving caret relocation.
@@ -143,8 +144,8 @@ android {
         applicationId 'com.ofairyo.gridtimer'
         minSdk 26
         targetSdk 34
-        versionCode 22284
-        versionName '2.23.2.15'
+        versionCode 22285
+        versionName '2.23.2.16'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         manifestPlaceholders.xiaomiAppId = ''
         manifestPlaceholders.xiaomiBuildTypeDebug = 'true'

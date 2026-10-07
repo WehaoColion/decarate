@@ -1,3 +1,4 @@
+# v0.0.31 - Freeze structured page edits and gate their real JVM models and write routes.
 # v0.0.30 - Gate knowledge navigation format, actual JVM suites and generated routing.
 # v0.0.29 - Include the document text alignment transform in formal Rust formatting.
 # v0.0.28 - Gate document Markdown block projection and executed separator mutations.
@@ -149,6 +150,7 @@ try {
     if([version]$taskVersion -ge [version]'2.23.2.12'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_document_markdown.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.13'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_document_block_alignment.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.15'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_knowledge_navigation.rs'}
+    if([version]$taskVersion -ge [version]'2.23.2.16'){$formatPaths += @('src\sourcegen\structured_mobile_data.rs','src\sourcegen\structured_mobile_tests.rs') | ForEach-Object {Join-Path $taskCrate $_}}
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
@@ -397,6 +399,57 @@ try {
         Write-TaskJson 'knowledge_navigation_generated_acceptance.json' ([ordered]@{passed=$true;sourceSnapshotSha256=$before.sha256;jvmTests=$navigationCounts;generatedFiles=$navigationGenerated;uniqueCollectionEntry=$true;existingNoteRoute=$true;deviceVerified=$false})
     }
 
+    $taskStructuredIntegration = $null
+    if([version]$taskVersion -ge [version]'2.23.2.16'){
+        $structuredSources = @{}
+        foreach($name in @('android_knowledge_compat.rs','structured_mobile_data.rs','structured_mobile_tests.rs')){
+            $relative='native/gridtimer_native/src/sourcegen/'+$name
+            if(@($before.files | Where-Object path -eq $relative).Count -ne 1){throw ('Structured page source was not frozen: '+$relative)}
+            $structuredSources[$name]=[IO.File]::ReadAllText((Join-Path $taskRoot $relative))
+        }
+        $structuredLiteral = {
+            param([string]$owner,[string]$name)
+            $match=[regex]::Match($structuredSources[$owner],'(?s)(?:pub\s+)?const '+[regex]::Escape($name)+':\s*&str\s*=\s*r(?<hash>#+)"(?<body>.*?)"\k<hash>;')
+            if(!$match.Success){throw ('Structured page literal missing: '+$owner+'/'+$name)}
+            $match.Groups['body'].Value.Replace("`r`n","`n")
+        }
+        $structuredGenerated = [ordered]@{}
+        $structuredCounts = [ordered]@{}
+        foreach($entry in @(
+            @{owner='structured_mobile_data.rs';literal='POLICY_CONTENTS';kind='main';name='StructuredEditPolicy'},
+            @{owner='structured_mobile_data.rs';literal='EDIT_CONTENTS';kind='main';name='StructuredNoteEditing'},
+            @{owner='structured_mobile_tests.rs';literal='TEST_CONTENTS';kind='test';name='StructuredEditPolicyTest'},
+            @{owner='structured_mobile_tests.rs';literal='EDIT_TEST_CONTENTS';kind='test';name='StructuredNoteEditingTest'}
+        )){
+            $literal=& $structuredLiteral $entry.owner $entry.literal
+            $relative='app/build/generated/source/rustAndroid/'+$entry.kind+'/com/ofairyo/gridtimer/data/'+$entry.name+'.kt'
+            $generated=[IO.File]::ReadAllText((Join-Path $taskRoot $relative)).Replace("`r`n","`n")
+            if($generated.Trim() -cne $literal.Trim()){throw ('Generated structured model or tests differ from frozen Rust source: '+$entry.name)}
+            $structuredGenerated[$relative]=(Get-FileHash -LiteralPath (Join-Path $taskRoot $relative)).Hash.ToLowerInvariant()
+            if($entry.kind -eq 'test'){
+                $names=@([regex]::Matches($literal,'@Test\s+fun\s+(\w+)\s*\(') | ForEach-Object {$_.Groups[1].Value})
+                $xmlPath=Join-Path $taskRoot ('app/build/test-results/testReleaseUnitTest/TEST-com.ofairyo.gridtimer.data.'+$entry.name+'.xml')
+                [xml]$suite=Get-Content -LiteralPath $xmlPath -Raw
+                if($names.Count -lt 1 -or @($names | Sort-Object -Unique).Count -ne $names.Count -or [int]$suite.testsuite.tests -ne $names.Count -or [int]$suite.testsuite.failures -ne 0 -or [int]$suite.testsuite.errors -ne 0 -or [int]$suite.testsuite.skipped -ne 0){throw ('Structured page JVM suite incomplete or failed: '+$entry.name)}
+                foreach($name in $names){if(@($suite.testsuite.testcase | Where-Object name -eq $name).Count -ne 1){throw ('Structured page business test not executed: '+$entry.name+'/'+$name)}}
+                Copy-Item -LiteralPath $xmlPath -Destination (Join-Path $taskEvidence ($entry.name+'.xml')) -Force
+                $structuredCounts[$entry.name]=$names.Count
+            }
+        }
+        $structuredRoutes = @{}
+        foreach($relative in @('data/TimerRepository.kt','ui/TimerViewModel.kt','ui/NoteDocumentEditor.kt','ui/SmartisanNoteUi.kt','ui/NoteStudioSheet.kt','ui/StructuredKnowledgeReader.kt')){
+            $path='app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/'+$relative
+            $structuredRoutes[$relative]=[IO.File]::ReadAllText((Join-Path $taskRoot $path)).Replace("`r`n","`n")
+            $structuredGenerated[$path]=(Get-FileHash -LiteralPath (Join-Path $taskRoot $path)).Hash.ToLowerInvariant()
+        }
+        if(([regex]::Matches($structuredRoutes['data/TimerRepository.kt'],'internal suspend fun applyStructuredNotePatch\(')).Count -ne 1 -or !$structuredRoutes['data/TimerRepository.kt'].Contains((& $structuredLiteral 'android_knowledge_compat.rs' 'REPOSITORY_WRITE')) -or ([regex]::Matches($structuredRoutes['ui/TimerViewModel.kt'],'internal fun applyStructuredNotePatch\(')).Count -ne 1 -or !$structuredRoutes['ui/TimerViewModel.kt'].Contains((& $structuredLiteral 'android_knowledge_compat.rs' 'VIEW_MODEL_WRITE'))){throw 'Structured edits are not connected once to the durable repository and existing save queue'}
+        if(([regex]::Matches($structuredRoutes['ui/NoteDocumentEditor.kt'],'viewModel\.applyStructuredNotePatch\(patch, structuredWorkspace, done\)')).Count -ne 1 -or ([regex]::Matches($structuredRoutes['ui/SmartisanNoteUi.kt'],'StructuredKnowledgeReader\(')).Count -ne 1 -or !$structuredRoutes['ui/StructuredKnowledgeReader.kt'].Contains('writer(request)') -or ([regex]::Matches($structuredRoutes['ui/NoteStudioSheet.kt'],'NoteDraftPreset\.STRUCTURED -> return com\.ofairyo\.gridtimer\.data\.buildStructuredMobileNote\(folderId, now\)')).Count -ne 1){throw 'Structured editor, protected reader or document preset route is missing or duplicated'}
+        $structuredRustLog=[IO.File]::ReadAllText((Join-Path $taskEvidence 'sourcegen_tests.log'))
+        if($structuredRustLog -notmatch '(?m)^test android_knowledge_compat::tests::real_structured_hooks_reject_missing_duplicate_and_reapplied_input \.\.\. ok\s*$'){throw 'Structured generator failure boundary did not execute'}
+        $taskStructuredIntegration=[ordered]@{passed=$true;sourceSnapshotSha256=$before.sha256;jvmTests=$structuredCounts;actualGeneratedModelAndTests=$true;durableRepositoryAndSaveQueueConnected=$true;protectedReaderAndPresetConnected=$true;generatedFiles=$structuredGenerated;hostOnly=$true;deviceVerified=$false}
+        Write-TaskJson 'structured_page_generated_acceptance.json' $taskStructuredIntegration
+    }
+
     $result = [ordered]@{schemaVersion=1;version=$taskVersion;mode=$Mode;passed=$true;noDeviceOperations=$true;sourceSnapshotSha256=$before.sha256;editingTests=$expectedTests;nativeArgumentEncoding=$taskNativeEncoding;completed=(Get-Date).ToUniversalTime().ToString('o');checks=@('rust_format','native_tests','sourcegen_tests','packager_tests','android_source_audit','android_jvm_tests','android_lint')}
     $result['excludedNonAndroidTestSuites'] = $taskNonAndroidSuites
     $result['nativeChecksReusedForFixtureOnlyRepair'] = $reusedNativeChecks
@@ -412,6 +465,7 @@ try {
     if($taskDocumentIntegration){$result['documentIntegration']=$taskDocumentIntegration}
     if($taskFinanceIntegration){$result['financeWorkspaceTests']=5;$result['financeWorkspaceIntegration']=$taskFinanceIntegration}
     if($taskMarkdownIntegration){$result['documentMarkdownTests']=$taskMarkdownIntegration.businessTests;$result['documentMarkdownIntegration']=$taskMarkdownIntegration}
+    if($taskStructuredIntegration){$result['structuredPageIntegration']=$taskStructuredIntegration}
     $result['mathNativeTests'] = $taskMathTests.Count
     $result['mathNativeTestNames'] = $taskMathTests
     if($Mode -eq 'build'){
