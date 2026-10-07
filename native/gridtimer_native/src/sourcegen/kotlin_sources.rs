@@ -1670,6 +1670,22 @@ internal object NativeOptimizerBridge {
         }.getOrNull()?.takeIf { it.size >= 3 }
     }
 
+    fun runAndroidKnowledgeAgent(
+        apiKey: String,
+        baseUrl: String,
+        model: String,
+        scopeJson: String,
+        taskId: String
+    ): String? {
+        if (!nativeAvailable) return null
+        return runCatching { nativeRunAndroidKnowledgeAgent(apiKey, baseUrl, model, scopeJson, taskId) }.getOrNull()
+    }
+
+    fun cancelAndroidKnowledgeAgent(taskId: String): Boolean {
+        if (!nativeAvailable) return false
+        return runCatching { nativeCancelAndroidKnowledgeAgent(taskId) }.getOrNull() == true
+    }
+
     fun selectPersistedAppDataJson(primaryJson: String?, backupJson: String?, now: Long): String? {
         if (!nativeAvailable) {
             return null
@@ -4864,6 +4880,18 @@ internal object NativeOptimizerBridge {
         sourceFolders: Array<String>,
         sourceExcerpts: Array<String>
     ): Array<String>?
+
+    @JvmStatic
+    private external fun nativeRunAndroidKnowledgeAgent(
+        apiKey: String,
+        baseUrl: String,
+        model: String,
+        scopeJson: String,
+        taskId: String
+    ): String?
+
+    @JvmStatic
+    private external fun nativeCancelAndroidKnowledgeAgent(taskId: String): Boolean
 
     @JvmStatic
     private external fun nativeSelectPersistedAppDataJson(
