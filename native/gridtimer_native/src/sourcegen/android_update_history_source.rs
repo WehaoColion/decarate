@@ -1,3 +1,4 @@
+// v2.23.2.22 - Record compact sticky search and retain the previous filter fix.
 // v2.23.2.20 - Repair old sticky visibility and update-history fallback.
 // v2.23.2.19 - Record sticky-note source navigation and current version.
 // v2.23.2.17 - Add the task Agent release history entry.
@@ -22,7 +23,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.20";
+pub const LATEST_VERSION: &str = "2.23.2.22";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -52,6 +53,36 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.22",
+        updatedAt = "2026-10-08 04:36",
+        summary = "便签搜索收进快捷入口，点按展开，有搜索词时保持可见",
+        sections = listOf(
+            AndroidUpdateSection("搜索入口与输入", listOf(
+                "普通便签列表不再常驻占据一整块搜索区域。搜索入口移到闪念、待办、会议和复盘旁边，点按搜索后展开单行输入框；窄屏或大字体下，入口会随原快捷操作换行。",
+                "仍可按标题、正文和文件夹查找便签，输入最多64个字符，输入框右侧显示当前字数。超过限制的输入按原上限保留前64个字符，不改变便签内容或匹配规则。"
+            )),
+            AndroidUpdateSection("搜索状态与筛选恢复", listOf(
+                "存在搜索词时，输入框和搜索选中状态保持可见，连续点按搜索不会隐藏当前条件。清空搜索词后，可再次点按搜索收起输入框。",
+                "回收站保留独立的搜索输入框，继续查询已删除便签。上一版的最近便签摘要、文件夹和类别筛选，以及空列表中的查看全部便签操作继续保留。"
+            )),
+            AndroidUpdateSection("版本与验证范围", listOf(
+                "安卓版本2.23.2.22，versionCode 22291，沿用原包名和正式签名。更新说明仍可折叠、点按复制和整版复制，更新时间按北京时间精确到分钟；历版说明保留。",
+                "本版只调整安卓便签搜索入口及其状态保护，便签保存、历史版本和同步数据格式保持原流程。Windows客户端和同步服务保持1.1.0.7；真机交互效果由本次安装验收确认。"
+            ))
+        )
+    ),
+    AndroidUpdateEntry(
+        version = "2.23.2.21",
+        updatedAt = "2026-10-08 03:10",
+        summary = "统一便签摘要与列表筛选范围，空列表可查看全部便签",
+        sections = listOf(
+            AndroidUpdateSection("便签范围与恢复", listOf(
+                "最近便签摘要和下方列表使用同一文件夹、类别及搜索条件。当前文件夹名称明确显示，避免摘要显示其他文件夹内容而列表为空。",
+                "筛选后为空时，显示当前范围并提供查看全部便签操作；点按会清除搜索词、类别和文件夹限制，不修改或删除便签。版本2.23.2.21，versionCode 22290。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.20",
         updatedAt = "2026-10-07 23:47",
@@ -569,7 +600,9 @@ mod tests {
             .map(|version| version.trim_matches('"'))
             .collect::<Vec<_>>();
         assert_eq!(versions.first().copied(), Some(LATEST_VERSION));
-        assert_eq!(versions.get(1).copied(), Some("2.23.2.17"));
+        assert_eq!(versions.get(1).copied(), Some("2.23.2.21"));
+        assert!(versions.contains(&"2.23.2.20"));
+        assert!(versions.contains(&"2.23.2.17"));
         assert!(versions.contains(&"2.23.2.16"));
         assert!(CONTENTS.contains("2026-10-07 23:47"));
     }
