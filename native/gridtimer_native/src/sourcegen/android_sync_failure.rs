@@ -2,6 +2,9 @@
 // v2.23.2.3 - Surface payload-free transport failures without weakening account binding.
 // Android production and JVM test code remain generated from this Rust source.
 
+#[path = "android_agent_upgrade.rs"]
+mod android_agent_upgrade;
+
 const REPOSITORY_PATH: &str = "com/ofairyo/gridtimer/data/TimerRepository.kt";
 const CONTRACT_PATH: &str = "com/ofairyo/gridtimer/data/WorkspaceIdentityRebindContract.kt";
 pub const TEST_PATH: &str = "com/ofairyo/gridtimer/data/UnboundSyncFailureTest.kt";
@@ -18,6 +21,9 @@ const RESPONSE_REPLACEMENT: &str = r#"            val result = decodeSyncNetwork
             val boundResponseSession = result?.let { response ->"#;
 
 pub fn render(path: &str, source: &str) -> Result<String, String> {
+    if path == android_agent_upgrade::SCREEN {
+        return android_agent_upgrade::render(path, source);
+    }
     match path {
         REPOSITORY_PATH => {
             let count = source.matches(RESPONSE_ANCHOR).count();
