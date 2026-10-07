@@ -1,3 +1,4 @@
+// v2.23.2.19 - Open selected Agent sticky-note sources and retain clear source labels.
 // v2.23.2.17 - Add a bounded task Agent with explicit scope and durable draft handoff.
 // v2.23.2.6 - Display AI answers with offline Markdown and formula layout.
 // v2.23.2.5 - Separate direct AI questions from source-grounded knowledge answers.
@@ -37,13 +38,13 @@ internal enum class KnowledgeAiMode(val wireValue: String) { DIRECT("direct"), K
 internal fun <T> knowledgeAiSourcesForMode(mode: KnowledgeAiMode, loadSources: () -> List<T>): List<T> =
     if (mode == KnowledgeAiMode.DIRECT) emptyList() else loadSources()
 
-internal fun <T> selectKnowledgeAgentDocuments(
+internal fun <T> selectKnowledgeAgentSources(
     candidates: List<T>,
-    isDocument: (T) -> Boolean,
+    isSupportedSource: (T) -> Boolean,
     isDeleted: (T) -> Boolean,
     isEncrypted: (T) -> Boolean,
     inScope: (T) -> Boolean
-): List<T> = candidates.filter { isDocument(it) && !isDeleted(it) && !isEncrypted(it) && inScope(it) }
+): List<T> = candidates.filter { isSupportedSource(it) && !isDeleted(it) && !isEncrypted(it) && inScope(it) }
 
 internal class KnowledgeAiRequestBoundary(initialMode: KnowledgeAiMode = KnowledgeAiMode.KNOWLEDGE) {
     private var generation = 0L
@@ -291,17 +292,17 @@ class KnowledgeAiRequestBoundaryTest {
         assertNotEquals(authorized, authorized.copy(question = "另一项任务"))
         assertNotEquals(authorized, authorized.copy(documents = listOf(page.copy(content = "更新后的正文"))))
     }
-    @Test fun agentScopeExcludesDeletedEncryptedAndOutOfFolderPages() {
-        data class Page(val id: String, val document: Boolean = true, val deleted: Boolean = false, val encrypted: Boolean = false, val folder: String = "A")
-        val pages = listOf(Page("allowed"), Page("sticky", document = false), Page("deleted", deleted = true), Page("encrypted", encrypted = true), Page("other-folder", folder = "B"))
-        val selected = selectKnowledgeAgentDocuments(
+    @Test fun agentScopeIncludesStickyNotesButExcludesDeletedEncryptedAndOutOfFolderSources() {
+        data class Page(val id: String, val kind: String = "DOCUMENT", val deleted: Boolean = false, val encrypted: Boolean = false, val folder: String = "A")
+        val pages = listOf(Page("allowed"), Page("legacy-sticky", kind = "STICKY"), Page("deleted", deleted = true), Page("encrypted", encrypted = true), Page("other-folder", folder = "B"), Page("unsupported", kind = "ATTACHMENT"))
+        val selected = selectKnowledgeAgentSources(
             pages,
-            isDocument = Page::document,
+            isSupportedSource = { it.kind == "DOCUMENT" || it.kind == "STICKY" },
             isDeleted = Page::deleted,
             isEncrypted = Page::encrypted,
             inScope = { it.folder == "A" }
         )
-        assertEquals(listOf("allowed"), selected.map(Page::id))
+        assertEquals(listOf("allowed", "legacy-sticky"), selected.map(Page::id))
     }
 }
 "####;
@@ -526,9 +527,9 @@ private fun KnowledgeAiDialog(
         }
     }
     val agentAvailableDocuments = remember(appData.notes, appData.noteFolders, selectedFolderId, searchScope) {
-        selectKnowledgeAgentDocuments(
-            candidates = appData.activeNotebookDocuments(),
-            isDocument = { it.kind == NoteEntryKind.DOCUMENT },
+        selectKnowledgeAgentSources(
+            candidates = appData.notes,
+            isSupportedSource = { it.kind == NoteEntryKind.DOCUMENT || it.kind == NoteEntryKind.STICKY },
             isDeleted = NoteEntry::isDeleted,
             isEncrypted = { it.encryption != null },
             inScope = { note -> searchScope == KnowledgeSearchScope.ALL || selectedFolderId == null || note.folderId == selectedFolderId }
@@ -539,7 +540,7 @@ private fun KnowledgeAiDialog(
         agentAvailableDocuments.filter { it.id in selectedIds }.map { note ->
             KnowledgeAgentSource(
                 id = note.id,
-                title = note.displayTitle(),
+                title = "${if (note.kind == NoteEntryKind.STICKY) "便签" else "知识页"} · ${note.displayTitle()}",
                 folder = note.folderId?.let { appData.findNoteFolder(it)?.name }.orEmpty(),
                 content = note.plainContent()
             )
@@ -698,7 +699,7 @@ private fun KnowledgeAiDialog(
                 !showSendingContent || !agentPreviewAcknowledged -> "先展开并核对完整发送预览，再勾选授权。"
                 !configuration.testable -> "请先完成 AI 配置并测试连接。"
                 safeQuestion.isBlank() -> "请先写明需要 Agent 处理的目标。"
-                documents.isEmpty() -> "请至少选择一篇未加密知识页。"
+                documents.isEmpty() -> "请至少选择一条未加密便签或知识页。"
                 else -> "Agent 正在处理，请等待当前任务结束。"
             }
             return
@@ -832,7 +833,7 @@ private fun KnowledgeAiDialog(
                         Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(if (configuration.testable) "${configuration.model} · ${configuration.recipientHost}" else "AI 尚未配置完整", fontWeight = FontWeight.SemiBold)
                             Text(when {
-                                agentMode -> "使用本机工具检索你选择的知识页，生成可编辑的新页草稿；不会自动修改或保存。"
+                                agentMode -> "使用本机工具检索你选择的便签和知识页，生成可编辑的新页草稿；不会自动修改或保存。"
                                 queryMode == KnowledgeAiMode.DIRECT -> "直接向 AI 提问，仅发送你的问题。"
                                 else -> "依据所选知识页节选回答，并列出来源。"
                             }, style = MaterialTheme.typography.bodySmall)
@@ -854,20 +855,20 @@ private fun KnowledgeAiDialog(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (selectedFolderId != null) ChoicePill(text = selectedFolderName ?: "当前文档库", selected = searchScope == KnowledgeSearchScope.CURRENT_FOLDER, accent = notesAccentColor,
                             onClick = { stopAgent("资料范围已改变"); invalidateAnswer(); agentSelectedIds.clear(); searchScope = KnowledgeSearchScope.CURRENT_FOLDER })
-                        ChoicePill(text = if (agentMode) "全部未加密知识页" else "全部知识页", selected = searchScope == KnowledgeSearchScope.ALL, accent = accentFor("blue"),
+                        ChoicePill(text = if (agentMode) "全部未加密资料" else "全部知识页", selected = searchScope == KnowledgeSearchScope.ALL, accent = accentFor("blue"),
                             onClick = { stopAgent("资料范围已改变"); invalidateAnswer(); agentSelectedIds.clear(); searchScope = KnowledgeSearchScope.ALL })
                     }
                 }
                 if (agentMode) item {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("授权知识页 ${selectedAgentDocuments.size}/30", fontWeight = FontWeight.SemiBold)
+                        Text("授权资料 ${selectedAgentDocuments.size}/30", fontWeight = FontWeight.SemiBold)
                         TextButton(onClick = {
                             stopAgent("资料选择已改变")
                             if (selectedAgentDocuments.size == agentAvailableDocuments.size) agentSelectedIds.clear()
                             else { agentSelectedIds.clear(); agentAvailableDocuments.take(30).forEach { agentSelectedIds.add(it.id) } }
                         }) { Text(if (selectedAgentDocuments.size == agentAvailableDocuments.size) "清空选择" else "全选当前范围") }
                     }
-                    Text("只列出当前未删除、未加密的知识页。附件、便签、财务、计时、归档记录、密钥和诊断资料不在本次范围。", style = MaterialTheme.typography.bodySmall)
+                    Text("可选当前未删除、未加密的便签和知识页；每条资料需单独勾选。附件、财务、计时、归档记录、密钥和诊断资料不在本次范围。", style = MaterialTheme.typography.bodySmall)
                 }
                 if (agentMode) items(agentAvailableDocuments, key = { "agent-doc-${it.id}" }) { note ->
                     Row(modifier = Modifier.fillMaxWidth().clickable {
@@ -881,7 +882,7 @@ private fun KnowledgeAiDialog(
                             if (!checked) agentSelectedIds.remove(note.id)
                         })
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(note.displayTitle(), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                            Text("${if (note.kind == NoteEntryKind.STICKY) "便签" else "知识页"} · ${note.displayTitle()}", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                             Text(note.folderId?.let { appData.findNoteFolder(it)?.name }.orEmpty().ifBlank { "未归类" }, style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -901,15 +902,15 @@ private fun KnowledgeAiDialog(
                 item {
                     val selectedChars = selectedAgentDocuments.sumOf { it.content.length }
                     Text(when {
-                        agentMode -> "接收方：${configuration.recipientHost.ifBlank { "未配置" }} · 模型：${configuration.model.ifBlank { "未配置" }} · 已选 ${selectedAgentDocuments.size} 页，正文共 $selectedChars 字符；先发问题和工具说明，再按需发送读取片段，最多 6 次请求。"
+                        agentMode -> "接收方：${configuration.recipientHost.ifBlank { "未配置" }} · 模型：${configuration.model.ifBlank { "未配置" }} · 已选 ${selectedAgentDocuments.size} 条资料，正文共 $selectedChars 字符；先发问题和工具说明，再按需发送读取片段，最多 6 次请求。"
                         queryMode == KnowledgeAiMode.DIRECT -> "将发送：仅你的问题"
                         else -> "将发送：你的问题 + ${sourceCandidates.size} 个知识页节选"
                     }, style = MaterialTheme.typography.bodySmall)
                     if (agentMode) Text("每轮会携带此前的工具记录，资料读取累计上限 32,000 字符；请求设置 store:false，但自定义服务的留存规则由服务商决定。", style = MaterialTheme.typography.bodySmall)
-                    if (agentMode) Text("请展开完整预览并核对接收方、模型和所选页面；预览末尾勾选授权后才能启动。草稿仍需检查、编辑并再次确认才会保存。", style = MaterialTheme.typography.bodySmall)
+                    if (agentMode) Text("请展开完整预览并核对接收方、模型和所选资料；预览末尾勾选授权后才能启动。草稿仍需检查、编辑并再次确认才会保存。", style = MaterialTheme.typography.bodySmall)
                     if (!configuration.testable) Text("先点上方配置入口，填写密钥、接口根地址和模型。", style = MaterialTheme.typography.bodySmall)
                     else if (question.isBlank()) Text("输入问题，或点选上面的示例。", style = MaterialTheme.typography.bodySmall)
-                    else if (agentMode && selectedAgentDocuments.isEmpty()) Text("请至少勾选一篇未加密知识页。", style = MaterialTheme.typography.bodySmall)
+                    else if (agentMode && selectedAgentDocuments.isEmpty()) Text("请至少勾选一条未加密便签或知识页。", style = MaterialTheme.typography.bodySmall)
                     else if (!agentMode && queryMode == KnowledgeAiMode.KNOWLEDGE && sourceCandidates.isEmpty()) Text("当前范围没有可读知识页。可切到全部知识页，或改用直接问 AI。", style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = {
                         showSendingContent = !showSendingContent
@@ -961,7 +962,7 @@ private fun KnowledgeAiDialog(
                             Text("本次工具记录", fontWeight = FontWeight.SemiBold)
                             agentTrace.forEach { traceLine -> Text("· $traceLine", style = MaterialTheme.typography.bodySmall) }
                         }
-                        Text("来源 ${agentResultSources.size} 篇；原文未修改。点击来源可回到原知识页。", style = MaterialTheme.typography.bodySmall)
+                        Text("来源 ${agentResultSources.size} 条；原文未修改。点击来源可查看原始资料。", style = MaterialTheme.typography.bodySmall)
                         PhysicalButton(label = if (agentSaving) "正在核验保存" else "确认保存为新知识页", icon = Icons.Rounded.SaveAlt, accent = accentFor("green"), filled = true,
                             enabled = !agentBusy && !agentSaving && agentBoundary.canSave(
                                 identityCurrent = viewModel.currentWorkspaceKey() == workspaceKey && latestIdentity == identity,
@@ -974,7 +975,7 @@ private fun KnowledgeAiDialog(
                 }
                 if (showSendingContent) {
                     item { Text(if (agentMode) "本次授权范围与正文预览" else "待发送的问题", fontWeight = FontWeight.SemiBold); Text(question.ifBlank { "尚未输入问题" }) }
-                    if (agentMode) item { Text("授权 ${selectedAgentDocuments.size} 篇 · 总计 ${selectedAgentDocuments.sumOf { it.content.length }} 字符，模型按需检索和读取", fontWeight = FontWeight.Medium) }
+                    if (agentMode) item { Text("授权 ${selectedAgentDocuments.size} 条资料 · 总计 ${selectedAgentDocuments.sumOf { it.content.length }} 字符，模型按需检索和读取", fontWeight = FontWeight.Medium) }
                     if (!agentMode && queryMode == KnowledgeAiMode.KNOWLEDGE) item { Text("待发送的来源节选 ${sourceCandidates.size}", fontWeight = FontWeight.SemiBold) }
                     if (agentMode) items(selectedAgentDocuments, key = { "agent-preview-${it.id}" }) { document ->
                         FlowusPanel(accent = accentFor("blue")) {

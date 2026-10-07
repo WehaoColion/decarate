@@ -51524,8 +51524,14 @@ internal fun NoteStudioSheet(
             },
             onOpenSource = { source ->
                 pendingCreatedNote = null
-                selectedNoteId = source.note.id
                 searchLocateQuery = null
+                if (source.note.kind == NoteEntryKind.STICKY) {
+                    selectedNoteId = null
+                    stickySourcePreview = source.note
+                } else {
+                    stickySourcePreview = null
+                    selectedNoteId = source.note.id
+                }
                 knowledgeDialogVisible = false
                 knowledgePriorityNoteId = null
             },
@@ -63415,6 +63421,26 @@ mod tests {
                 "{label} studio must retain the draft while its first durable write completes"
             );
         }
+    }
+
+    #[test]
+    fn agent_source_navigation_opens_sticky_notes_in_preview() {
+        let studio = source("com/ofairyo/gridtimer/ui/NoteStudioSheet.kt");
+        let start = studio
+            .find("if (knowledgeDialogVisible) {")
+            .expect("knowledge AI dialog");
+        let end = studio[start..]
+            .find("if (folderManagerVisible) {")
+            .map(|offset| start + offset)
+            .expect("folder manager after knowledge AI dialog");
+        let callback = &studio[start..end];
+
+        assert!(callback.contains("onOpenSource = { source ->"));
+        assert!(callback.contains("if (source.note.kind == NoteEntryKind.STICKY)"));
+        assert!(callback.contains("stickySourcePreview = source.note"));
+        assert!(callback.contains("selectedNoteId = source.note.id"));
+        assert!(studio.contains("StickySourcePreviewDialog("));
+        assert!(studio.contains("onDismiss = { stickySourcePreview = null }"));
     }
 
     #[test]

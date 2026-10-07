@@ -1,6 +1,6 @@
 # v0.0.1 - Verify task Agent authorization and save-confirmation gates with isolated JUnit mutations.
 [CmdletBinding()]
-param([string]$Version = '2.23.2.17')
+param([string]$Version = '2.23.2.19')
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'Invalid Android Agent mutation version' }
@@ -29,7 +29,7 @@ function Replace-Unique([string]$Text, [string]$Before, [string]$After) {
 $contents = Get-EmbeddedKotlin $sourceText 'CONTENTS'
 $tests = Get-EmbeddedKotlin $sourceText 'TEST_CONTENTS'
 $testNames = @([regex]::Matches($tests, '@Test\s+fun\s+(\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value })
-$requiredTests = @('agentRequiresExplicitAuthorizationConfiguredModelAndReadableDocuments','agentDuplicateOrStaleWorkspaceCannotContinueOrSave','agentOnlySavesACompletedDraftAfterUserConfirmation','agentDraftContextIncludesWorkspaceQuestionConfigurationAndSelectedPageContent','agentScopeExcludesDeletedEncryptedAndOutOfFolderPages')
+$requiredTests = @('agentRequiresExplicitAuthorizationConfiguredModelAndReadableDocuments','agentDuplicateOrStaleWorkspaceCannotContinueOrSave','agentOnlySavesACompletedDraftAfterUserConfirmation','agentDraftContextIncludesWorkspaceQuestionConfigurationAndSelectedPageContent','agentScopeIncludesStickyNotesButExcludesDeletedEncryptedAndOutOfFolderSources')
 if (!$testNames.Count -or @($requiredTests | Where-Object { $_ -notin $testNames }).Count) { throw 'Agent authorization or durable-save business tests are missing' }
 $agentCompiler = @(
     (Get-Dependency 'org.jetbrains.kotlin/kotlin-compiler-embeddable' '1.9.24' 'kotlin-compiler-embeddable-1.9.24.jar'),
