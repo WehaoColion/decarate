@@ -3,10 +3,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const REVIEW_GOAL_CHARS: usize = 180;
-const REVIEW_TITLE_CHARS: usize = 80;
-const REVIEW_CONTENT_CHARS: usize = 420;
-const REVIEW_TASK_CHARS: usize = 160;
+const REVIEW_GOAL_CHARS: usize = 520;
 
 #[derive(Clone, Debug)]
 struct AgentScopeMeta {
@@ -26,7 +23,7 @@ pub fn run_enhanced_android_knowledge_agent(
 ) -> Value {
     let scope = parse_scope_meta(scope_json);
     let deep_review = scope.as_ref().is_some_and(|value| value.deep_review);
-    let plan = build_plan(scope.as_ref().map_or(0, |value| value.document_count), deep_review);
+    let plan = build_plan(scope.as_ref());
 
     let mut first = ai_client::run_android_knowledge_agent(
         api_key,
@@ -46,7 +43,7 @@ pub fn run_enhanced_android_knowledge_agent(
 
     if deep_review && final_result.ok && final_result.draft.is_some() && !cancelled.load(Ordering::Acquire) {
         review_attempted = true;
-        if let Some(review_scope) = build_review_scope(scope_json, scope.as_ref(), final_result.draft.as_ref()) {
+        if let Some(review_scope) = build_review_scope(scope_json, scope.as_ref()) {
             let mut reviewed = ai_client::run_android_knowledge_agent(
                 api_key,
                 base_url,
@@ -130,15 +127,27 @@ fn parse_scope_meta(scope_json: &str) -> Option<AgentScopeMeta> {
     })
 }
 
-fn build_plan(document_count: usize, deep_review: bool) -> Vec<String> {
+fn build_plan(scope: Option<&AgentScopeMeta>) -> Vec<String> {
+    let document_count = scope.map_or(0, |value| value.document_count);
+    let deep_review = scope.is_some_and(|value| value.deep_review);
+    let goal = scope.map_or("", |value| value.question.as_str());
     let mut plan = vec![
         format!("确认本次授权范围（{document_count} 条资料）"),
         "在授权资料中检索与目标最相关的内容".to_string(),
         "按需分段读取原文并保留真实来源".to_string(),
-        "生成新的知识页草稿和可选待办，不修改来源".to_string(),
     ];
+    if contains_any(goal, &["比较", "对比", "冲突", "一致", "差异"]) {
+        plan.push("交叉比较多个来源，明确一致、冲突和证据不足之处".to_string());
+    }
+    if contains_any(goal, &["待办", "计划", "下一步", "未完成", "行动"]) {
+        plan.push("提取尚未完成的行动项，不编造负责人和期限".to_string());
+    }
+    if contains_any(goal, &["复盘", "总结", "归纳", "整理"]) {
+        plan.push("区分已确认事实、问题和下一步，避免把推测写成结论".to_string());
+    }
+    plan.push("生成新的知识页草稿和可选待办，不修改来源".to_string());
     if deep_review {
-        plan.push("第二阶段重新检索同一资料，复核冲突、遗漏和无来源结论".to_string());
+        plan.push("第二阶段独立重新检索同一资料，复核冲突、遗漏和无来源结论".to_string());
     }
     plan.extend([
         "本机核验来源、工具链和草稿结构".to_string(),
@@ -147,19 +156,15 @@ fn build_plan(document_count: usize, deep_review: bool) -> Vec<String> {
     plan
 }
 
-fn build_review_scope(
-    scope_json: &str,
-    scope: Option<&AgentScopeMeta>,
-    draft: Option<&AndroidAgentDraft>,
-) -> Option<String> {
-    let draft = draft?;
+fn contains_any(value: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| value.contains(needle))
+}
+
+fn build_review_scope(scope_json: &str, scope: Option<&AgentScopeMeta>) -> Option<String> {
     let mut value: Value = serde_json::from_str(scope_json).ok()?;
     let goal = clip_chars(scope.map_or("", |value| value.question.as_str()), REVIEW_GOAL_CHARS);
-    let title = clip_chars(&draft.title, REVIEW_TITLE_CHARS);
-    let content = clip_chars(&draft.content, REVIEW_CONTENT_CHARS);
-    let tasks = clip_chars(&draft.action_items.iter().take(5).cloned().collect::<Vec<_>>().join("；"), REVIEW_TASK_CHARS);
     let question = format!(
-        "第二阶段深度核验。原任务：{goal}\n首轮草稿标题：{title}\n首轮正文节选：{content}\n首轮待办节选：{tasks}\n请重新检索并读取同一授权资料，重点检查事实冲突、遗漏、无来源结论和不必要推断；然后生成一份完整替代草稿。若首轮内容正确可保留，但不得引入授权资料之外的事实，也不得声称已经保存或执行待办。"
+        "第二阶段深度核验。原任务：{goal}\n请独立重新执行这个目标：重新检索并读取同一批授权资料，重点寻找事实冲突、遗漏、无来源结论和不必要推断，然后生成一份完整替代草稿。不得依赖首轮草稿内容，不得引入授权资料之外的事实，也不得声称已经保存或执行待办。"
     );
     if question.chars().count() > 1000 {
         return None;
@@ -224,7 +229,7 @@ fn verify_result(
         json!({"id":"tool_chain","label":"工具链完整","passed":has_search && has_read && has_draft_tool,"detail":if has_search && has_read && has_draft_tool {"已检索、读取并生成内存草稿"} else {"缺少检索、读取或草稿步骤"}}),
         json!({"id":"sources","label":"来源仍在授权范围","passed":unique_sources && sources_authorized,"detail":if unique_sources && sources_authorized {format!("{} 个来源均来自本次授权资料", source_ids.len())} else {"来源缺失、重复或超出授权范围".to_string()}}),
         json!({"id":"tasks","label":"待办结构可用","passed":action_items_valid,"detail":if action_items_valid {"待办为空或每项均非空且没有重复"} else {"待办存在空项或重复项"}}),
-        json!({"id":"deep_review","label":"第二阶段深度核验","passed":review_ok,"detail":if !deep_review {"本次未要求第二阶段核验"} else if review_completed {"已重新检索同一授权范围并生成复核草稿"} else {"深度核验未完成，保存前需要重新运行"}}),
+        json!({"id":"deep_review","label":"第二阶段深度核验","passed":review_ok,"detail":if !deep_review {"本次未要求第二阶段核验"} else if review_completed {"已独立重新检索同一授权范围并生成复核草稿"} else {"深度核验未完成，保存前需要重新运行"}}),
         json!({"id":"write_boundary","label":"没有自动写入来源","passed":true,"detail":"Agent 只生成草稿；保存仍由你在界面确认"}),
     ];
     let passed = checks.iter().all(|check| check.get("passed").and_then(Value::as_bool) == Some(true));
@@ -241,7 +246,7 @@ mod tests {
 
     fn sample_scope(deep_review: bool) -> String {
         json!({
-            "question":"整理项目进展并找出遗漏",
+            "question":"整理项目进展并找出未完成事项和冲突",
             "deepReview":deep_review,
             "documents":[
                 {"id":"a","title":"项目记录","folder":"工作","content":"第一阶段完成，测试尚未完成。"},
@@ -274,16 +279,26 @@ mod tests {
     }
 
     #[test]
-    fn review_scope_is_bounded_and_keeps_the_same_documents() {
+    fn review_scope_is_bounded_independent_and_keeps_the_same_documents() {
         let scope_json = sample_scope(true);
         let scope = parse_scope_meta(&scope_json).unwrap();
-        let result = sample_result();
-        let review = build_review_scope(&scope_json, Some(&scope), result.draft.as_ref()).unwrap();
+        let review = build_review_scope(&scope_json, Some(&scope)).unwrap();
         let value: Value = serde_json::from_str(&review).unwrap();
         assert_eq!(value["documents"].as_array().unwrap().len(), 2);
         assert_eq!(value["deepReview"], false);
         assert!(value["question"].as_str().unwrap().chars().count() <= 1000);
-        assert!(value["question"].as_str().unwrap().contains("第二阶段深度核验"));
+        assert!(value["question"].as_str().unwrap().contains("独立重新执行"));
+        assert!(!value["question"].as_str().unwrap().contains("项目复盘"));
+    }
+
+    #[test]
+    fn task_plan_adds_goal_specific_comparison_and_action_steps() {
+        let scope_json = sample_scope(true);
+        let scope = parse_scope_meta(&scope_json).unwrap();
+        let plan = build_plan(Some(&scope));
+        assert!(plan.iter().any(|step| step.contains("交叉比较")));
+        assert!(plan.iter().any(|step| step.contains("行动项")));
+        assert!(plan.iter().any(|step| step.contains("第二阶段")));
     }
 
     #[test]
