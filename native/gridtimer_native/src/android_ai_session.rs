@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use zeroize::Zeroizing;
 
+#[path = "android_agent_upgrade.rs"]
+mod android_agent_upgrade;
+
 static AGENT_RUNS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
 
 fn agent_runs() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
@@ -75,13 +78,14 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
         if runs.contains_key(&task_id) {
             return std::ptr::null_mut();
         }
-        runs.insert(task_id, Arc::clone(&cancelled));
+        runs.insert(task_id.clone(), Arc::clone(&cancelled));
     }
-    let result = crate::ai_client::run_android_knowledge_agent(
+    let result = android_agent_upgrade::run_enhanced_android_knowledge_agent(
         &api_key,
         &base_url,
         &model,
         &scope_json,
+        &task_id,
         &cancelled,
     );
     drop(guard);
