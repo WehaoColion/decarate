@@ -1,7 +1,8 @@
+# v0.0.3 - Verify fresh document readability and isolated projection failures.
 # v0.0.2 - Verify review-gated save and mode-bound draft context with isolated mutations.
 # v0.0.1 - Verify task Agent authorization and save-confirmation gates with isolated JUnit mutations.
 [CmdletBinding()]
-param([string]$Version = '2.23.2.19')
+param([string]$Version = '2.23.2.24')
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'Invalid Android Agent mutation version' }
@@ -31,6 +32,7 @@ $contents = Get-EmbeddedKotlin $sourceText 'CONTENTS'
 $tests = Get-EmbeddedKotlin $sourceText 'TEST_CONTENTS'
 $testNames = @([regex]::Matches($tests, '@Test\s+fun\s+(\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value })
 $requiredTests = @('agentRequiresExplicitAuthorizationConfiguredModelAndReadableDocuments','agentDuplicateOrStaleWorkspaceCannotContinueOrSave','agentOnlySavesACompletedDraftAfterUserConfirmation','agentDraftContextIncludesWorkspaceQuestionConfigurationAndSelectedPageContent','agentScopeIncludesStickyNotesButExcludesDeletedEncryptedAndOutOfFolderSources')
+if ([version]$Version -ge [version]'2.23.2.24') { $requiredTests += 'unreadableWholeDocumentCannotSendEvenWhenOtherPagesExist' }
 if (!$testNames.Count -or @($requiredTests | Where-Object { $_ -notin $testNames }).Count) { throw 'Agent authorization or durable-save business tests are missing' }
 $agentCompiler = @(
     (Get-Dependency 'org.jetbrains.kotlin/kotlin-compiler-embeddable' '1.9.24' 'kotlin-compiler-embeddable-1.9.24.jar'),
@@ -56,6 +58,9 @@ $cases = @(
     @{ name='removedSaveConfirmation'; mutation='confirmation'; requiredFailure='agentOnlySavesACompletedDraftAfterUserConfirmation' },
     @{ name='removedReviewVerification'; mutation='review'; requiredFailure='agentCannotSaveDraftUntilVerificationPasses' }
 )
+if ([version]$Version -ge [version]'2.23.2.24') {
+    $cases += @{ name='removedDocumentReadability'; mutation='readability'; requiredFailure='unreadableWholeDocumentCannotSendEvenWhenOtherPagesExist' }
+}
 $results = @()
 foreach ($case in $cases) {
     $caseDir = Join-Path $evidence $case.name
@@ -80,6 +85,9 @@ foreach ($case in $cases) {
 '@
             $mutatedSourceText = Replace-Unique $mutatedSourceText $copyBefore.TrimEnd("`r", "`n") $copyAfter.TrimEnd("`r", "`n")
             if ($mutatedSourceText -ceq $sourceText) { throw 'Cosmetic mutation did not alter the production UI source' }
+        }
+        'readability' {
+            $helper = Replace-Unique $helper '(priorityNoteId == null || id(it) == priorityNoteId) && isReadable(it)' '(priorityNoteId == null || id(it) == priorityNoteId)'
         }
         'authorization' {
             $helper = Replace-Unique $helper 'closed || pending != null || !authorized || !configured || question.isBlank() || documentCount !in 1..30' 'closed || pending != null || !configured || question.isBlank() || documentCount !in 1..30'
@@ -116,6 +124,6 @@ foreach ($case in $cases) {
 }
 $sourceAfter = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($sourceBefore -cne $sourceAfter -or $sourceHashBefore -cne [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([IO.File]::ReadAllText($sourcePath)))).ToLowerInvariant()) { throw 'Production Rust source changed during isolated mutation verification' }
-$receipt = [ordered]@{ passed=$true; version=$Version; sourcePath=$sourceRelativePath; sourceSha256=$sourceBefore; testCount=$testNames.Count; testNames=$testNames; cases=$results; productionUnchanged=$true; noNetworkRequests=$true; hostOnly=$true; scope='Android AI Agent request authorization, context-bound save confirmation, and UI copy/style mutation only. Does not assert real provider or device execution.'; checkedAt=[DateTimeOffset]::Now.ToString('o') }
+$receipt = [ordered]@{ passed=$true; version=$Version; sourcePath=$sourceRelativePath; sourceSha256=$sourceBefore; testCount=$testNames.Count; testNames=$testNames; cases=$results; productionUnchanged=$true; noNetworkRequests=$true; hostOnly=$true; scope='Android AI request authorization, context-bound save confirmation, fresh document readability, isolated projection failure, and UI copy/style mutation. Does not assert real provider or device execution.'; checkedAt=[DateTimeOffset]::Now.ToString('o') }
 [IO.File]::WriteAllText((Join-Path $evidence 'receipt.json'), ($receipt | ConvertTo-Json -Depth 12), $utf8)
 Write-Output "Android $Version task Agent mutation acceptance completed"

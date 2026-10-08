@@ -1,3 +1,4 @@
+// v2.23.2.24 - Guard document AI opening and source lifetime.
 // v2.23.2.23 - Add independent Agent review and verified draft saving.
 // v2.23.2.22 - Integrate compact search beside sticky note presets.
 // v2.23.2.21 - Align the sticky note summary with active filters and restore access to all notes.
@@ -147,8 +148,8 @@ android {
         applicationId 'com.ofairyo.gridtimer'
         minSdk 26
         targetSdk 34
-        versionCode 22292
-        versionName '2.23.2.23'
+        versionCode 22293
+        versionName '2.23.2.24'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         manifestPlaceholders.xiaomiAppId = ''
         manifestPlaceholders.xiaomiBuildTypeDebug = 'true'

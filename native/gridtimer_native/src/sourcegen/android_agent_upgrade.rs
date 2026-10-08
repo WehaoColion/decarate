@@ -163,14 +163,14 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
     replace_once(
         &mut rendered,
         "    val agentSelectedIds = rememberSaveable(workspaceKey, identity, selectedFolderId) { mutableStateListOf<String>() }",
-        "    val agentSelectedIds = remember(workspaceKey, identity, selectedFolderId) { mutableStateListOf<String>() }",
+        "    val agentSelectedIds = remember(workspaceKey, identity, selectedFolderId, priorityNoteId) { mutableStateListOf<String>() }",
     )?;
 
     // The document-level action must enter source-grounded mode immediately.
     replace_once(
         &mut rendered,
         "    var queryMode by rememberSaveable(workspaceKey, identity, priorityNoteId) { mutableStateOf(KnowledgeAiMode.DIRECT) }",
-        "    var queryMode by rememberSaveable(workspaceKey, identity, priorityNoteId) { mutableStateOf(if (priorityNoteId == null) KnowledgeAiMode.DIRECT else KnowledgeAiMode.KNOWLEDGE) }",
+        "    var queryMode by rememberSaveable(workspaceKey, identity, priorityNoteId) { mutableStateOf(knowledgeAiInitialMode(priorityNoteId)) }",
     )?;
 
     // Candidate extraction touches legacy and structured page projections. Treat a
@@ -197,16 +197,119 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
                         knowledgeDialogVisible = true
                     }"####,
         r####"                    onAskKnowledge = { note ->
-                        val current = appData.notes.firstOrNull { candidate ->
-                            candidate.id == note.id && !candidate.isDeleted() && !candidate.isEncryptionLocked()
-                        }
+                        val current = selectReadableKnowledgeSources(
+                            appData.notes, note.id, NoteEntry::id,
+                            isReadable = { it.kind == NoteEntryKind.DOCUMENT && !it.isDeleted() && it.encryption == null }
+                        ).firstOrNull()
                         if (current == null) {
-                            Toast.makeText(context, "当前文档不可读取，请刷新或先解锁后再询问。", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "当前文档不可读取；加密文档暂不纳入 AI 资料。", Toast.LENGTH_LONG).show()
                         } else {
                             knowledgePriorityNoteId = current.id
                             knowledgeDialogVisible = true
                         }
                     }"####,
+    )?;
+
+    // Resolve the selected document again on every source rebuild. Never fall back
+    // to other pages when that document disappears, locks, or fails projection.
+    replace_once(
+        &mut rendered,
+        r####"private fun buildKnowledgeSourceCandidates(
+    appData: AppData,
+    question: String,
+    selectedFolderId: String?,
+    searchScope: KnowledgeSearchScope,
+    priorityNoteId: String?
+): List<KnowledgeSourceCandidate> {
+    val documents = appData.activeNotebookDocuments()
+        .filter { note ->
+            searchScope == KnowledgeSearchScope.ALL ||
+                selectedFolderId == null ||
+                note.folderId == selectedFolderId ||
+                note.id == priorityNoteId
+        }
+    if (documents.isEmpty()) {
+        return emptyList()
+    }
+    val foldersById = appData.noteFolders.associateBy(NoteFolder::id)
+    val titles = documents.map { it.displayTitle() }.toTypedArray()
+    val bodies = documents.map { it.searchableText().take(12_000) }.toTypedArray()
+    val folderNames = documents
+        .map { note -> foldersById[note.folderId]?.name.orEmpty() }
+        .toTypedArray()
+    val rankedNotes = NativeOptimizerBridge.rankKnowledgeSources(
+        query = question,
+        titles = titles,
+        bodies = bodies,
+        folders = folderNames
+    ).asIterable().mapNotNull { index -> documents.getOrNull(index) }
+    val priorityNote = priorityNoteId?.let { id -> documents.firstOrNull { it.id == id } }
+    val orderedNotes = mutableListOf<NoteEntry>()
+    priorityNote?.let(orderedNotes::add)
+    rankedNotes.forEach { note ->
+        if (orderedNotes.none { existing -> existing.id == note.id }) {
+            orderedNotes.add(note)
+        }
+    }
+    val finalNotes = orderedNotes.ifEmpty { documents }
+
+    return finalNotes
+        .take(5)
+        .mapNotNull { note ->
+            val excerpt = buildKnowledgeExcerpt(note, question)
+            if (excerpt.isBlank()) {
+                null
+            } else {
+                KnowledgeSourceCandidate(
+                    note = note,
+                    folderName = foldersById[note.folderId]?.name.orEmpty(),
+                    excerpt = excerpt
+                )
+            }
+        }
+}"####,
+        r####"private fun buildKnowledgeSourceCandidates(
+    appData: AppData,
+    question: String,
+    selectedFolderId: String?,
+    searchScope: KnowledgeSearchScope,
+    priorityNoteId: String?
+): List<KnowledgeSourceCandidate> {
+    val documents = selectReadableKnowledgeSources(
+        appData.activeNotebookDocuments(), priorityNoteId, NoteEntry::id,
+        isReadable = { note ->
+            note.kind == NoteEntryKind.DOCUMENT && !note.isDeleted() && note.encryption == null &&
+                (searchScope == KnowledgeSearchScope.ALL || selectedFolderId == null ||
+                    note.folderId == selectedFolderId || note.id == priorityNoteId)
+        }
+    )
+    val foldersById = appData.noteFolders.associateBy(NoteFolder::id)
+    val projections = projectKnowledgeSources(documents) { note ->
+        Triple(note.displayTitle(), note.searchableText().take(12_000), note)
+    }
+    if (projections.isEmpty()) return emptyList()
+    val rankedNotes = NativeOptimizerBridge.rankKnowledgeSources(
+        query = question,
+        titles = projections.map { it.first }.toTypedArray(),
+        bodies = projections.map { it.second }.toTypedArray(),
+        folders = projections.map { foldersById[it.third.folderId]?.name.orEmpty() }.toTypedArray()
+    ).asIterable().mapNotNull { index -> projections.getOrNull(index)?.third }
+    val priorityNote = priorityNoteId?.let { id -> projections.firstOrNull { it.third.id == id }?.third }
+    val orderedNotes = mutableListOf<NoteEntry>()
+    priorityNote?.let(orderedNotes::add)
+    rankedNotes.forEach { note ->
+        if (orderedNotes.none { existing -> existing.id == note.id }) orderedNotes.add(note)
+    }
+    val finalNotes = orderedNotes.ifEmpty { projections.map { it.third } }
+    return projectKnowledgeSources(finalNotes.take(5)) { note ->
+        val excerpt = buildKnowledgeExcerpt(note, question)
+        if (excerpt.isBlank()) null else KnowledgeSourceCandidate(
+            note = note,
+            folderName = foldersById[note.folderId]?.name.orEmpty(),
+            excerpt = excerpt
+        )
+    }
+}"####,
     )?;
 
     Ok(rendered)

@@ -1,3 +1,4 @@
+// v2.23.2.24 - Record document AI crash guards and exact source scope.
 // v2.23.2.23 - Record knowledge Agent independent review and save safeguards.
 // v2.23.2.22 - Record compact sticky search and retain the previous filter fix.
 // v2.23.2.20 - Repair old sticky visibility and update-history fallback.
@@ -24,7 +25,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.23";
+pub const LATEST_VERSION: &str = "2.23.2.24";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -54,6 +55,26 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.24",
+        updatedAt = "2026-10-08 14:23",
+        summary = "修复文档询问 AI 的打开与资料失效边界",
+        sections = listOf(
+            AndroidUpdateSection("文档入口与临时状态", listOf(
+                "文档中的询问入口默认进入问知识库模式；打开前重新核对当前文档，临时勾选不再写入页面恢复状态，切换文档不沿用旧勾选。",
+                "当前文档已删除、变为其他类型或加密时不能进入资料问答；加密文档暂不纳入 AI 资料，不会为了发送而把编辑器明文放入共用数据。"
+            )),
+            AndroidUpdateSection("资料读取与发送保护", listOf(
+                "指定文档在对话框打开后失效、无法解析或没有可读节选时，不能开始资料问答，不会自动改用其他知识页。",
+                "普通知识库逐条隔离无法解析的资料，一篇异常旧页不再让全部正常来源消失。直接问 AI 仍只发送问题，不读取知识内容。",
+                "文档问答保持有界节选，指定文档只使用该页节选；发送前可以查看实际内容，不能据此宣称已读完一篇长文档。授权、取消、独立深度复核与核验后确认保存继续保留。"
+            )),
+            AndroidUpdateSection("版本与验收范围", listOf(
+                "Android 版本为 2.23.2.24，版本代码 22293，沿用原包名与正式签名，可覆盖更新；此前更新记录保留。",
+                "本轮执行本机领域测试、关键门禁变异、正式版单元测试与 lint 后构建正式签名候选。没有本次闪退堆栈，实际手机上的打开、切换、返回和模型请求仍需安装验收。Windows 保持原版。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.23",
         updatedAt = "2026-10-08 07:30",
@@ -622,7 +643,7 @@ mod tests {
             .map(|version| version.trim_matches('"'))
             .collect::<Vec<_>>();
         assert_eq!(versions.first().copied(), Some(LATEST_VERSION));
-        assert_eq!(versions.get(1).copied(), Some("2.23.2.22"));
+        assert_eq!(versions.get(1).copied(), Some("2.23.2.23"));
         assert!(versions.contains(&"2.23.2.20"));
         assert!(versions.contains(&"2.23.2.17"));
         assert!(versions.contains(&"2.23.2.16"));
