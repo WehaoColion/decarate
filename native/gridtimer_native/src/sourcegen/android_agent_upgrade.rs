@@ -2,6 +2,9 @@
 // v2.23.2.23 - Freeze review context and apply the tested save verification policy.
 // Android Agent v2: expose a visible plan, optional second-pass review and local verification.
 
+#[path = "android_agent_progress_ui.rs"]
+mod android_agent_progress_ui;
+
 pub const SCREEN: &str = "com/ofairyo/gridtimer/ui/NoteStudioSheet.kt";
 
 fn replace_once(source: &mut String, before: &str, after: &str) -> Result<(), String> {
@@ -312,5 +315,5 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
 }"####,
     )?;
 
-    Ok(rendered)
+    android_agent_progress_ui::render(&rendered)
 }

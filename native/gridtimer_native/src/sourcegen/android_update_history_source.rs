@@ -1,3 +1,4 @@
+// v2.23.2.25 - Record real Agent progress and clear outcome handling.
 // v2.23.2.24 - Record document AI crash guards and exact source scope.
 // v2.23.2.23 - Record knowledge Agent independent review and save safeguards.
 // v2.23.2.22 - Record compact sticky search and retain the previous filter fix.
@@ -25,7 +26,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.24";
+pub const LATEST_VERSION: &str = "2.23.2.25";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -55,6 +56,31 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.25",
+        updatedAt = "2026-10-08 22:44",
+        summary = "任务 Agent 显示真实进度，明确取消、结果与保存状态",
+        sections = listOf(
+            AndroidUpdateSection("开始任务", listOf(
+                "填写目标并选择资料后，可以直接打开完整发送预览。授权勾选与开始执行放在预览末尾，核对后即可开始，不必返回上方寻找按钮。未授权、未配置模型、没有可读资料时仍不能发送。",
+                "批量选择最多 30 条资料，再次点按可以清空本批选择。候选超过 30 条时明确说明数量上限，避免按钮显示全选却反复选择同一批资料。"
+            )),
+            AndroidUpdateSection("等待与取消", listOf(
+                "执行时显示后端实际阶段、已用时间、请求次数、工具调用次数及当前阶段已读取资料数。首轮整理、独立复核、等待模型响应和本机检查分别显示，不使用虚构进度百分比。",
+                "取消后先说明是否仍在等待当前请求返回；后端停止后显示已取消。已取消的任务不再继续发送后续请求，也不能用迟到结果覆盖新任务。",
+                "失败时保留本次可确认的执行统计及工具记录，便于判断任务进行到了哪里。正常等待与主动取消不会被当成错误标红。"
+            )),
+            AndroidUpdateSection("结果与保存", listOf(
+                "结果明确区分可以保存、复核未完成、失败和取消。保存条件未满足时说明具体原因，包括核验未通过、资料已变化、草稿为空或正在保存。",
+                "只有原有知识页保存流程确认成功后，才显示已保存，并阻止重复提交同一草稿；保存失败仍可以重试。原始资料不会自动被覆盖。",
+                "进度只在本机内存保存任务标识、阶段与数字，不记录 API 密钥、资料正文或模型推理。切换账户、工作区、目标或授权范围后继续阻止旧结果保存。"
+            )),
+            AndroidUpdateSection("版本与验收范围", listOf(
+                "Android 候选版本为 2.23.2.25，版本代码 22294。此前更新记录保留。Windows 继续使用原版本。",
+                "本次先提交源码 PR，并执行本机领域测试、源码生成、正式版单元测试及 lint。手机交互、真实模型调用和安装验收另行记录，不把本机测试通过当成真机验收通过。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.24",
         updatedAt = "2026-10-08 14:23",
@@ -643,7 +669,7 @@ mod tests {
             .map(|version| version.trim_matches('"'))
             .collect::<Vec<_>>();
         assert_eq!(versions.first().copied(), Some(LATEST_VERSION));
-        assert_eq!(versions.get(1).copied(), Some("2.23.2.23"));
+        assert_eq!(versions.get(1).copied(), Some("2.23.2.24"));
         assert!(versions.contains(&"2.23.2.20"));
         assert!(versions.contains(&"2.23.2.17"));
         assert!(versions.contains(&"2.23.2.16"));

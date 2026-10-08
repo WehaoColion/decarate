@@ -1,4 +1,5 @@
 use crate::ai_client::{self, AndroidAgentResult, AndroidAgentToolTrace};
+use crate::android_agent_progress::{AgentProgress, AgentProgressEvent, AgentStage, AgentTerminal};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,21 +20,52 @@ pub fn run_enhanced_android_knowledge_agent(
     task_id: &str,
     cancelled: &AtomicBool,
 ) -> Value {
-    run_enhanced_with_runner(scope_json, task_id, cancelled, |scope, review| {
-        if review {
-            ai_client::run_android_knowledge_agent_review(
-                api_key, base_url, model, scope, cancelled,
-            )
-        } else {
-            ai_client::run_android_knowledge_agent(api_key, base_url, model, scope, cancelled)
-        }
-    })
+    run_enhanced_android_knowledge_agent_with_progress(
+        api_key, base_url, model, scope_json, task_id, cancelled, None,
+    )
 }
 
+pub(crate) fn run_enhanced_android_knowledge_agent_with_progress(
+    api_key: &str,
+    base_url: &str,
+    model: &str,
+    scope_json: &str,
+    task_id: &str,
+    cancelled: &AtomicBool,
+    progress: Option<&AgentProgress>,
+) -> Value {
+    let observer = |event| progress.is_none_or(|state| state.apply(event));
+    run_enhanced_with_runner_and_progress(
+        scope_json,
+        task_id,
+        cancelled,
+        progress,
+        |scope, review| {
+            ai_client::run_android_knowledge_agent_observed(
+                api_key, base_url, model, scope, cancelled, review, &observer,
+            )
+        },
+    )
+}
+
+#[cfg(test)]
 fn run_enhanced_with_runner<F>(
     scope_json: &str,
     task_id: &str,
     cancelled: &AtomicBool,
+    runner: F,
+) -> Value
+where
+    F: FnMut(&str, bool) -> AndroidAgentResult,
+{
+    run_enhanced_with_runner_and_progress(scope_json, task_id, cancelled, None, runner)
+}
+
+fn run_enhanced_with_runner_and_progress<F>(
+    scope_json: &str,
+    task_id: &str,
+    cancelled: &AtomicBool,
+    progress: Option<&AgentProgress>,
     mut runner: F,
 ) -> Value
 where
@@ -43,6 +75,9 @@ where
     let deep_review = scope.as_ref().is_some_and(|value| value.deep_review);
     let plan = build_plan(scope.as_ref());
 
+    if let Some(progress) = progress {
+        progress.apply(AgentProgressEvent::StageStarted(AgentStage::FirstPass));
+    }
     let mut first = if cancelled.load(Ordering::Acquire) {
         AndroidAgentResult {
             ok: false,
@@ -73,6 +108,9 @@ where
         review_attempted = true;
         // Both stages receive exactly the authorized scope and complete original goal.
         // Review instructions are supplied by the trusted client, outside source data.
+        if let Some(progress) = progress {
+            progress.apply(AgentProgressEvent::StageStarted(AgentStage::Review));
+        }
         let mut reviewed = runner(scope_json, true);
         let stage = verify_stage(&reviewed, scope.as_ref());
         review_completed = stage.passed() && !cancelled.load(Ordering::Acquire);
@@ -100,14 +138,17 @@ where
         }
     }
 
-    let was_cancelled = cancelled.load(Ordering::Acquire);
+    if let Some(progress) = progress {
+        progress.apply(AgentProgressEvent::Verifying);
+    }
+    let mut was_cancelled = cancelled.load(Ordering::Acquire);
     if was_cancelled {
         review_completed = false;
         final_result.ok = false;
         final_result.message = "本次 Agent 任务已取消，结果不能保存，请重新运行。".to_string();
     }
 
-    let verification = verify_result(
+    let mut verification = verify_result(
         &verify_stage(&final_result, scope.as_ref()),
         &first_verification,
         review_verification.as_ref(),
@@ -115,6 +156,31 @@ where
         review_completed,
         was_cancelled,
     );
+    if let Some(progress) = progress {
+        let terminal = if was_cancelled {
+            AgentTerminal::Cancelled
+        } else if verification.get("passed").and_then(Value::as_bool) == Some(true) {
+            AgentTerminal::Ready
+        } else if deep_review && first_verification.passed() && !review_completed {
+            AgentTerminal::ReviewIncomplete
+        } else {
+            AgentTerminal::Failed
+        };
+        if progress.finish(terminal) == AgentTerminal::Cancelled && !was_cancelled {
+            was_cancelled = true;
+            review_completed = false;
+            final_result.ok = false;
+            final_result.message = "本次 Agent 任务已取消，结果不能保存，请重新运行。".to_string();
+            verification = verify_result(
+                &verify_stage(&final_result, scope.as_ref()),
+                &first_verification,
+                review_verification.as_ref(),
+                deep_review,
+                review_completed,
+                was_cancelled,
+            );
+        }
+    }
     let mut value = serde_json::to_value(&final_result).unwrap_or_else(|_| {
         json!({
             "ok": false,
@@ -612,6 +678,113 @@ mod tests {
                 },
             );
             assert_eq!(result["verification"]["passed"], false);
+        }
+    }
+    #[test]
+    fn progress_two_stages_emit_independent_reads_and_finish_after_verification() {
+        let flag = std::sync::Arc::new(AtomicBool::new(false));
+        let progress = AgentProgress::new("task", std::sync::Arc::clone(&flag));
+        let result = run_enhanced_with_runner_and_progress(
+            &sample_scope(true),
+            "task",
+            &flag,
+            Some(&progress),
+            |_, review| {
+                let snapshot = serde_json::to_value(progress.snapshot()).unwrap();
+                assert_eq!(
+                    snapshot["stage"],
+                    if review { "review" } else { "first_pass" }
+                );
+                assert_eq!(snapshot["documentsRead"], 0);
+                assert!(progress.apply(AgentProgressEvent::RequestStarted));
+                assert!(progress.apply(AgentProgressEvent::RequestFinished));
+                for documents_read in [0, 2, 2] {
+                    assert!(progress.apply(AgentProgressEvent::ToolFinished { documents_read }));
+                }
+                assert_eq!(
+                    serde_json::to_value(progress.snapshot()).unwrap()["documentsRead"],
+                    2
+                );
+                let mut result = sample_result();
+                result.requests = 1;
+                result
+            },
+        );
+        let snapshot = serde_json::to_value(progress.snapshot()).unwrap();
+        assert_eq!(snapshot["terminal"], "ready");
+        assert_eq!(snapshot["stage"], "verifying");
+        assert_eq!(snapshot["activity"], "finished");
+        assert_eq!(snapshot["requestInFlight"], false);
+        assert_eq!(snapshot["requests"], result["requests"]);
+        assert_eq!(snapshot["toolCalls"], result["toolCalls"]);
+        assert_eq!(snapshot["documentsRead"], 0);
+        assert_eq!(result["verification"]["passed"], true);
+    }
+
+    #[test]
+    fn progress_failed_and_incomplete_review_never_report_ready() {
+        for review_failure in [false, true] {
+            let flag = std::sync::Arc::new(AtomicBool::new(false));
+            let progress = AgentProgress::new("task", std::sync::Arc::clone(&flag));
+            let result = run_enhanced_with_runner_and_progress(
+                &sample_scope(true),
+                "task",
+                &flag,
+                Some(&progress),
+                |_, review| {
+                    if !review_failure || review {
+                        {
+                            let mut failed = sample_result();
+                            failed.ok = false;
+                            failed.message = "transport failed".to_string();
+                            failed.answer.clear();
+                            failed.draft = None;
+                            failed
+                        }
+                    } else {
+                        sample_result()
+                    }
+                },
+            );
+            let snapshot = serde_json::to_value(progress.snapshot()).unwrap();
+            assert_eq!(
+                snapshot["terminal"],
+                if review_failure {
+                    "review_incomplete"
+                } else {
+                    "failed"
+                }
+            );
+            assert_eq!(snapshot["requestInFlight"], false);
+            assert_eq!(result["verification"]["passed"], false);
+            assert_eq!(result["ok"], review_failure);
+        }
+    }
+
+    #[test]
+    fn progress_cancellation_before_registration_or_during_stage_cannot_open_save_gate() {
+        for before_start in [false, true] {
+            let flag = std::sync::Arc::new(AtomicBool::new(before_start));
+            let progress = AgentProgress::new("task", std::sync::Arc::clone(&flag));
+            let mut calls = 0;
+            let result = run_enhanced_with_runner_and_progress(
+                &sample_scope(true),
+                "task",
+                &flag,
+                Some(&progress),
+                |_, _| {
+                    calls += 1;
+                    progress.request_cancel();
+                    sample_result()
+                },
+            );
+            assert_eq!(calls, usize::from(!before_start));
+            assert_eq!(result["ok"], false);
+            assert_eq!(result["verification"]["passed"], false);
+            let snapshot = serde_json::to_value(progress.snapshot()).unwrap();
+            assert_eq!(snapshot["terminal"], "cancelled");
+            assert_eq!(snapshot["cancelRequested"], true);
+            assert_eq!(snapshot["requestInFlight"], false);
         }
     }
 }

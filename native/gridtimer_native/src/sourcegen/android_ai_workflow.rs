@@ -48,6 +48,58 @@ internal object KnowledgeAgentReviewPolicy {
     fun canSave(verified: Boolean, completeDraft: Boolean): Boolean = verified && completeDraft
 }
 
+
+internal data class KnowledgeAgentProgress(
+    val taskId: String, val sequence: Long, val stage: String, val activity: String,
+    val requests: Int, val toolCalls: Int, val documentsRead: Int,
+    val requestInFlight: Boolean, val cancelRequested: Boolean, val terminal: String, val elapsedSeconds: Long
+)
+internal fun acceptKnowledgeAgentProgress(
+    previous: KnowledgeAgentProgress?, incoming: KnowledgeAgentProgress?, ownedTaskId: String, identityCurrent: Boolean
+): KnowledgeAgentProgress? {
+    if (incoming == null || !identityCurrent || incoming.taskId != ownedTaskId ||
+        incoming.sequence < 0 || incoming.requests < 0 || incoming.toolCalls < 0 ||
+        incoming.documentsRead < 0 || incoming.elapsedSeconds < 0 ||
+        incoming.stage !in setOf("first_pass", "review", "verifying") ||
+        incoming.activity !in setOf("preparing", "model", "tool", "verifying", "finished") ||
+        incoming.terminal !in setOf("running", "ready", "review_incomplete", "failed", "cancelled")) return previous
+    if (previous != null && previous.taskId == ownedTaskId &&
+        (incoming.sequence < previous.sequence || incoming.elapsedSeconds < previous.elapsedSeconds ||
+         incoming.requests < previous.requests || incoming.toolCalls < previous.toolCalls ||
+         (previous.terminal != "running" && incoming.terminal == "running"))) return previous
+    return incoming
+}
+internal enum class KnowledgeAgentLaunchAction { WAIT, PREVIEW, START }
+internal fun knowledgeAgentLaunchAction(
+    busy: Boolean, saving: Boolean, inputsReady: Boolean, previewVisible: Boolean, authorized: Boolean
+): KnowledgeAgentLaunchAction = when {
+    busy || saving || !inputsReady -> KnowledgeAgentLaunchAction.WAIT
+    previewVisible && authorized -> KnowledgeAgentLaunchAction.START
+    else -> KnowledgeAgentLaunchAction.PREVIEW
+}
+internal fun toggleKnowledgeAgentSelection(selectedIds: Set<String>, candidateIds: List<String>): Set<String> {
+    val bounded = candidateIds.filter(String::isNotBlank).distinct().take(30).toSet()
+    return if (selectedIds == bounded) emptySet() else bounded
+}
+internal enum class KnowledgeAgentSaveState {
+    READY, RUNNING, SAVING, SAVED, CANCELLED, FAILED, REVIEW_INCOMPLETE, CONTEXT_CHANGED, INCOMPLETE, UNVERIFIED
+}
+internal fun knowledgeAgentSaveState(
+    running: Boolean, saving: Boolean, saved: Boolean, terminal: String,
+    identityCurrent: Boolean, contextCurrent: Boolean, verified: Boolean, completeDraft: Boolean
+): KnowledgeAgentSaveState {
+    if (saved) return KnowledgeAgentSaveState.SAVED
+    if (saving) return KnowledgeAgentSaveState.SAVING
+    if (running) return KnowledgeAgentSaveState.RUNNING
+    if (!identityCurrent || !contextCurrent) return KnowledgeAgentSaveState.CONTEXT_CHANGED
+    if (terminal == "cancelled") return KnowledgeAgentSaveState.CANCELLED
+    if (terminal == "failed") return KnowledgeAgentSaveState.FAILED
+    if (terminal == "review_incomplete") return KnowledgeAgentSaveState.REVIEW_INCOMPLETE
+    if (!completeDraft) return KnowledgeAgentSaveState.INCOMPLETE
+    if (!verified || terminal != "ready") return KnowledgeAgentSaveState.UNVERIFIED
+    return KnowledgeAgentSaveState.READY
+}
+
 internal enum class KnowledgeAiMode(val wireValue: String) { DIRECT("direct"), KNOWLEDGE("knowledge") }
 
 internal fun <T> knowledgeAiSourcesForMode(mode: KnowledgeAiMode, loadSources: () -> List<T>): List<T> =
@@ -382,6 +434,64 @@ class KnowledgeAiRequestBoundaryTest {
             assertNull(KnowledgeAiRequestBoundary(KnowledgeAiMode.KNOWLEDGE).begin(true, true, "question", projected.size))
         }
     }
+
+    @Test fun progressRejectsOtherTaskOrWorkspaceAndKeepsCancellationVisible() {
+        val current = KnowledgeAgentProgress("owned", 2, "first_pass", "model", 1, 0, 0, true, false, "running", 4)
+        val cancelled = current.copy(sequence = 3, cancelRequested = true, elapsedSeconds = 5)
+        assertEquals(cancelled, acceptKnowledgeAgentProgress(current, cancelled, "owned", true))
+        assertEquals(current, acceptKnowledgeAgentProgress(current, cancelled.copy(taskId = "other"), "owned", true))
+        assertEquals(current, acceptKnowledgeAgentProgress(current, cancelled, "owned", false))
+        assertNull(acceptKnowledgeAgentProgress(null, current, "other", true))
+    }
+    @Test fun progressCannotRegressCountersElapsedOrCompletedRun() {
+        val ready = KnowledgeAgentProgress("owned", 7, "verifying", "finished", 4, 5, 0, false, false, "ready", 20)
+        for (incoming in listOf(ready.copy(sequence = 6), ready.copy(elapsedSeconds = 19),
+            ready.copy(requests = 3), ready.copy(toolCalls = 4), ready.copy(terminal = "running"),
+            ready.copy(documentsRead = -1), ready.copy(stage = "unknown"))) {
+            assertEquals(ready, acceptKnowledgeAgentProgress(ready, incoming, "owned", true))
+        }
+        assertEquals(ready.copy(sequence = 8, elapsedSeconds = 21),
+            acceptKnowledgeAgentProgress(ready, ready.copy(sequence = 8, elapsedSeconds = 21), "owned", true))
+    }
+    @Test fun launchRequiresSeparatePreviewAndAuthorization() {
+        assertEquals(KnowledgeAgentLaunchAction.PREVIEW, knowledgeAgentLaunchAction(false, false, true, false, false))
+        assertEquals(KnowledgeAgentLaunchAction.PREVIEW, knowledgeAgentLaunchAction(false, false, true, true, false))
+        assertEquals(KnowledgeAgentLaunchAction.PREVIEW, knowledgeAgentLaunchAction(false, false, true, false, true))
+        assertEquals(KnowledgeAgentLaunchAction.START, knowledgeAgentLaunchAction(false, false, true, true, true))
+        assertEquals(KnowledgeAgentLaunchAction.WAIT, knowledgeAgentLaunchAction(true, false, true, true, true))
+        assertEquals(KnowledgeAgentLaunchAction.WAIT, knowledgeAgentLaunchAction(false, true, true, true, true))
+        assertEquals(KnowledgeAgentLaunchAction.WAIT, knowledgeAgentLaunchAction(false, false, false, true, true))
+    }
+    @Test fun boundedSelectionCanAlwaysToggleBackToEmpty() {
+        val ids = (1..40).map { "page-$it" }
+        val first = toggleKnowledgeAgentSelection(emptySet(), ids)
+        assertEquals(30, first.size)
+        assertEquals(ids.take(30).toSet(), first)
+        assertTrue(toggleKnowledgeAgentSelection(first, ids).isEmpty())
+        assertEquals(setOf("page-1"), toggleKnowledgeAgentSelection(emptySet(), listOf("", "page-1", "page-1")))
+    }
+    @Test fun saveStateExplainsCriticalGatesAndCompletedSaveCannotRepeat() {
+        fun state(running: Boolean = false, saving: Boolean = false, saved: Boolean = false,
+            terminal: String = "ready", identity: Boolean = true, context: Boolean = true,
+            verified: Boolean = true, draft: Boolean = true) =
+            knowledgeAgentSaveState(running, saving, saved, terminal, identity, context, verified, draft)
+        assertEquals(KnowledgeAgentSaveState.READY, state())
+        assertEquals(KnowledgeAgentSaveState.RUNNING, state(running = true))
+        assertEquals(KnowledgeAgentSaveState.SAVING, state(saving = true))
+        assertEquals(KnowledgeAgentSaveState.SAVED, state(saved = true))
+        assertEquals(KnowledgeAgentSaveState.CANCELLED, state(terminal = "cancelled"))
+        assertEquals(KnowledgeAgentSaveState.FAILED, state(terminal = "failed"))
+        assertEquals(KnowledgeAgentSaveState.REVIEW_INCOMPLETE, state(terminal = "review_incomplete"))
+        assertEquals(KnowledgeAgentSaveState.CONTEXT_CHANGED, state(identity = false))
+        assertEquals(KnowledgeAgentSaveState.CONTEXT_CHANGED, state(context = false))
+        assertEquals(KnowledgeAgentSaveState.UNVERIFIED, state(verified = false))
+        assertEquals(KnowledgeAgentSaveState.INCOMPLETE, state(draft = false))
+        val boundary = KnowledgeAgentRequestBoundary()
+        assertTrue(boundary.beginSave(true, true, true, true))
+        boundary.finishSave(true)
+        assertFalse(boundary.beginSave(true, true, true, true))
+    }
+
     @Test fun agentScopeIncludesStickyNotesButExcludesDeletedEncryptedAndOutOfFolderSources() {
         data class Page(val id: String, val kind: String = "DOCUMENT", val deleted: Boolean = false, val encrypted: Boolean = false, val folder: String = "A")
         val pages = listOf(Page("allowed"), Page("legacy-sticky", kind = "STICKY"), Page("deleted", deleted = true), Page("encrypted", encrypted = true), Page("other-folder", folder = "B"), Page("unsupported", kind = "ATTACHMENT"))

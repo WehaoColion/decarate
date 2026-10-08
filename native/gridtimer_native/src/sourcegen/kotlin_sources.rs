@@ -1682,6 +1682,11 @@ internal object NativeOptimizerBridge {
         return runCatching { nativeRunAndroidKnowledgeAgent(apiKey, baseUrl, model, scopeJson, taskId) }.getOrNull()
     }
 
+    fun androidKnowledgeAgentProgress(taskId: String): String? {
+        if (!nativeAvailable || taskId.isBlank()) return null
+        return runCatching { nativeAndroidKnowledgeAgentProgress(taskId) }.getOrNull()
+    }
+
     fun finishAndroidKnowledgeAgent(taskId: String) {
         if (!nativeAvailable || taskId.isBlank()) return
         runCatching { nativeFinishAndroidKnowledgeAgent(taskId) }
@@ -4898,6 +4903,7 @@ internal object NativeOptimizerBridge {
 
     @JvmStatic
     private external fun nativeCancelAndroidKnowledgeAgent(taskId: String): Boolean
+    private external fun nativeAndroidKnowledgeAgentProgress(taskId: String): String?
     private external fun nativeFinishAndroidKnowledgeAgent(taskId: String): Boolean
 
     @JvmStatic

@@ -1,3 +1,4 @@
+v2.23.2.25（Android候选APK）- 任务 Agent 增加真实执行进度，理顺发送预览、取消与结果保存；versionCode 22294。正式签名验收APK已按原交付流程构建，手机验收待完成。详见[本版说明](documents/releases/android/release_notes_v2.23.2.25.md)。
 v2.23.2.24（Android候选）- 接入PR #17，修复文档询问AI临时状态与来源失效边界，隔离单条解析失败；versionCode 22293，正式签名候选供手机验收。详见[本版说明](documents/releases/android/release_notes_v2.23.2.24.md)。
 v2.23.2.23（Android候选）- 接入PR #16，知识Agent新增独立第二阶段复核、本机核验与保存门禁；完整目标和授权资料保持一致。versionCode 22292，正式签名候选供手机验收。详见[本版说明](documents/releases/android/release_notes_v2.23.2.23.md)。
 v0.0.8 - 便签搜索改为快捷入口，交付安卓2.23.2.22验收包。

@@ -58,26 +58,30 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     if task_id.trim().is_empty() || task_id.len() > 100 {
         return std::ptr::null_mut();
     }
-    let cancelled = {
+    let (cancelled, progress) = {
         let Ok(mut runs) = agent_runs().lock() else {
             return std::ptr::null_mut();
         };
         let Ok(cancelled) = runs.register(&task_id) else {
             return std::ptr::null_mut();
         };
-        cancelled
+        let Some(progress) = runs.progress_for_run(&task_id, &cancelled) else {
+            return std::ptr::null_mut();
+        };
+        (cancelled, progress)
     };
     let guard = AgentRunGuard {
         task_id: task_id.clone(),
         cancelled: Arc::clone(&cancelled),
     };
-    let result = crate::android_agent_upgrade::run_enhanced_android_knowledge_agent(
+    let result = crate::android_agent_upgrade::run_enhanced_android_knowledge_agent_with_progress(
         &api_key,
         &base_url,
         &model,
         &scope_json,
         &task_id,
         &cancelled,
+        Some(&progress),
     );
     drop(guard);
     let Ok(json) = serde_json::to_string(&result) else {
@@ -85,6 +89,32 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     };
     env.new_string(json)
         .map(jni::objects::JString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeAndroidKnowledgeAgentProgress(
+    mut env: JNIEnv,
+    _class: JClass,
+    task_id: JString,
+) -> jstring {
+    let Ok(task_id) = env.get_string(&task_id).map(String::from) else {
+        return std::ptr::null_mut();
+    };
+    let progress = {
+        let Ok(runs) = agent_runs().lock() else {
+            return std::ptr::null_mut();
+        };
+        runs.progress(&task_id)
+    };
+    let Some(progress) = progress else {
+        return std::ptr::null_mut();
+    };
+    let Ok(json) = serde_json::to_string(&progress.snapshot()) else {
+        return std::ptr::null_mut();
+    };
+    env.new_string(json)
+        .map(JString::into_raw)
         .unwrap_or(std::ptr::null_mut())
 }
 
