@@ -1,3 +1,4 @@
+// v2.23.2.24 - Guard whole-document AI launch and keep transient selection out of saved state.
 // v2.23.2.23 - Freeze review context and apply the tested save verification policy.
 // Android Agent v2: expose a visible plan, optional second-pass review and local verification.
 
@@ -155,5 +156,58 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
     replace_once(&mut rendered,
         "        answer = \"\"; answerSources = emptyList()\n        scope.launch {",
         "        answer = \"\"; answerSources = emptyList()\n        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {")?;
+
+    // Whole-document AI is opened while the document editor still owns a saveable
+    // state holder. SnapshotStateList is transient UI state and must not be registered
+    // as a Bundle value when that holder is swapped for the AI dialog.
+    replace_once(
+        &mut rendered,
+        "    val agentSelectedIds = rememberSaveable(workspaceKey, identity, selectedFolderId) { mutableStateListOf<String>() }",
+        "    val agentSelectedIds = remember(workspaceKey, identity, selectedFolderId) { mutableStateListOf<String>() }",
+    )?;
+
+    // The document-level action must enter source-grounded mode immediately.
+    replace_once(
+        &mut rendered,
+        "    var queryMode by rememberSaveable(workspaceKey, identity, priorityNoteId) { mutableStateOf(KnowledgeAiMode.DIRECT) }",
+        "    var queryMode by rememberSaveable(workspaceKey, identity, priorityNoteId) { mutableStateOf(if (priorityNoteId == null) KnowledgeAiMode.DIRECT else KnowledgeAiMode.KNOWLEDGE) }",
+    )?;
+
+    // Candidate extraction touches legacy and structured page projections. Treat a
+    // malformed page as an unavailable source instead of allowing a composition-time
+    // exception to terminate the Android process.
+    replace_once(
+        &mut rendered,
+        r####"        knowledgeAiSourcesForMode(queryMode) {
+            buildKnowledgeSourceCandidates(appData, question, selectedFolderId, searchScope, priorityNoteId)
+        }"####,
+        r####"        knowledgeAiSourcesForMode(queryMode) {
+            runCatching {
+                buildKnowledgeSourceCandidates(appData, question, selectedFolderId, searchScope, priorityNoteId)
+            }.getOrElse { emptyList() }
+        }"####,
+    )?;
+
+    // Re-resolve the page against current AppData before opening AI. The dialog only
+    // carries a small id; the existing source builder keeps document text bounded.
+    replace_once(
+        &mut rendered,
+        r####"                    onAskKnowledge = { note ->
+                        knowledgePriorityNoteId = note.id
+                        knowledgeDialogVisible = true
+                    }"####,
+        r####"                    onAskKnowledge = { note ->
+                        val current = appData.notes.firstOrNull { candidate ->
+                            candidate.id == note.id && !candidate.isDeleted() && !candidate.isEncryptionLocked()
+                        }
+                        if (current == null) {
+                            Toast.makeText(context, "当前文档不可读取，请刷新或先解锁后再询问。", Toast.LENGTH_LONG).show()
+                        } else {
+                            knowledgePriorityNoteId = current.id
+                            knowledgeDialogVisible = true
+                        }
+                    }"####,
+    )?;
+
     Ok(rendered)
 }
