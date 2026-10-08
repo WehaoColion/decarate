@@ -1,3 +1,4 @@
+# v0.0.34 - Verify actual Agent progress tests and generated JNI polling.
 # v0.0.33 - Gate executed document readability tests and the additional mutation case.
 # v0.0.32 - Gate executed Agent review tests and the shared generated save policy.
 # v0.0.31 - Freeze structured page edits and gate their real JVM models and write routes.
@@ -155,6 +156,7 @@ try {
     if([version]$taskVersion -ge [version]'2.23.2.15'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_knowledge_navigation.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.16'){$formatPaths += @('src\sourcegen\structured_mobile_data.rs','src\sourcegen\structured_mobile_tests.rs') | ForEach-Object {Join-Path $taskCrate $_}}
     if([version]$taskVersion -ge [version]'2.23.2.23'){$formatPaths += @('src/android_agent_upgrade.rs','src/android_agent_registry.rs','src/sourcegen/android_agent_upgrade.rs') | ForEach-Object {Join-Path $taskCrate $_}}
+    if([version]$taskVersion -ge [version]'2.23.2.25'){$formatPaths += @('src/android_agent_progress.rs','src/sourcegen/android_agent_progress_ui.rs') | ForEach-Object {Join-Path $taskCrate $_}}
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
@@ -269,7 +271,7 @@ try {
         $upgradeLiteral = [regex]::Match($upgradeHelperSource,'(?s)pub const CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;').Groups['body'].Value
         if($upgradeHelper.Trim() -cne $upgradeLiteral.Trim()){throw 'Tested Agent review helper differs from generated model'}
         $upgradeMutation = Get-Content -LiteralPath (Join-Path $taskEvidence 'agent_mutation/receipt.json') -Raw | ConvertFrom-Json
-        $upgradeMutationExpected = if([version]$taskVersion -ge [version]'2.23.2.24'){6}else{5}
+        $upgradeMutationExpected = if([version]$taskVersion -ge [version]'2.23.2.25'){9}elseif([version]$taskVersion -ge [version]'2.23.2.24'){6}else{5}
         if(!$upgradeMutation.passed -or !$upgradeMutation.productionUnchanged -or $upgradeMutation.cases.Count -ne $upgradeMutationExpected -or @($upgradeMutation.cases | Where-Object {!$_.passed}).Count -ne 0 -or $upgradeMutation.sourceSha256 -ne (Get-FileHash -LiteralPath (Join-Path $taskCrate 'src/sourcegen/android_ai_workflow.rs') -Algorithm SHA256).Hash.ToLowerInvariant()){throw 'Agent save authorization/review mutation receipt is missing or stale'}
         $registrySource = Get-Content -LiteralPath (Join-Path $taskCrate 'src/android_agent_registry.rs') -Raw
         $registryTestNames = @([regex]::Matches($registrySource,'(?m)#\[test\]\s*fn\s+(\w+)\(') | ForEach-Object {$_.Groups[1].Value})
@@ -278,6 +280,20 @@ try {
             if($upgradeNativeLog -notmatch ('(?m)^test android_agent_registry::tests::'+[regex]::Escape($name)+' \.\.\. ok\s*$')){throw ('Agent cancellation registry test did not execute: '+$name)}
         }
         Write-TaskJson 'agent_review_acceptance.json' ([ordered]@{passed=$true;nativeTests=$upgradeTestNames.Count;nativeTestNames=$upgradeTestNames;registryTests=$registryTestNames.Count;registryTestNames=$registryTestNames;generatedSaveGates=2;generatedHelperMatchesTestedSource=$true;mutationCases=$upgradeMutationExpected;hostOnly=$true;deviceVerified=$false;realProviderVerified=$false})
+    }
+    if([version]$taskVersion -ge [version]'2.23.2.25'){
+        $progressSource = Get-Content -LiteralPath (Join-Path $taskCrate 'src/android_agent_progress.rs') -Raw
+        $progressNames = @([regex]::Matches($progressSource,'(?m)#\[test\]\s*fn\s+(\w+)\(') | ForEach-Object {$_.Groups[1].Value})
+        if($progressNames.Count -lt 1){throw 'Agent progress domain tests are missing'}
+        foreach($name in $progressNames){
+            if($upgradeNativeLog -notmatch ('(?m)^test android_agent_progress::tests::'+[regex]::Escape($name)+' \.\.\. ok\s*$')){throw ('Agent progress test did not execute: '+$name)}
+        }
+        $bridge = Get-Content -LiteralPath (Join-Path $taskRoot 'app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/core/NativeOptimizerBridge.kt') -Raw
+        if(!$bridge.Contains('nativeAndroidKnowledgeAgentProgress(') -or !$upgradeStudio.Contains('androidKnowledgeAgentProgress(')) {throw 'Agent progress JNI polling is not connected to the generated dialog'}
+        foreach($path in @('native/gridtimer_native/src/android_agent_progress.rs','native/gridtimer_native/src/sourcegen/android_agent_progress_ui.rs')){
+            if(@($before.files | Where-Object path -eq $path).Count -ne 1){throw ('Agent progress source was not frozen: '+$path)}
+        }
+        Write-TaskJson 'agent_progress_acceptance.json' ([ordered]@{passed=$true;nativeTestNames=$progressNames;generatedPollingConnected=$true;sourceSnapshotSha256=$before.sha256;hostOnly=$true;deviceVerified=$false;realProviderVerified=$false})
     }
     if([version]$taskVersion -ge [version]'2.23.2.24'){
         [xml]$documentAiResult = Get-Content -LiteralPath (Join-Path $taskRoot 'app/build/test-results/testReleaseUnitTest/TEST-com.ofairyo.gridtimer.ui.KnowledgeAiRequestBoundaryTest.xml') -Raw

@@ -1,8 +1,9 @@
+# v0.0.4 - Verify progress ownership, preview authorization and terminal save conditions.
 # v0.0.3 - Verify fresh document readability and isolated projection failures.
 # v0.0.2 - Verify review-gated save and mode-bound draft context with isolated mutations.
 # v0.0.1 - Verify task Agent authorization and save-confirmation gates with isolated JUnit mutations.
 [CmdletBinding()]
-param([string]$Version = '2.23.2.24')
+param([string]$Version = '2.23.2.25')
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'Invalid Android Agent mutation version' }
@@ -61,6 +62,13 @@ $cases = @(
 if ([version]$Version -ge [version]'2.23.2.24') {
     $cases += @{ name='removedDocumentReadability'; mutation='readability'; requiredFailure='unreadableWholeDocumentCannotSendEvenWhenOtherPagesExist' }
 }
+if ([version]$Version -ge [version]'2.23.2.25') {
+    $cases += @(
+        @{ name='removedProgressOwnership'; mutation='progressOwner'; requiredFailure='progressRejectsOtherTaskOrWorkspaceAndKeepsCancellationVisible' },
+        @{ name='removedLaunchAuthorization'; mutation='launchAuthorization'; requiredFailure='launchRequiresSeparatePreviewAndAuthorization' },
+        @{ name='removedSaveOutcomeVerification'; mutation='saveOutcome'; requiredFailure='saveStateExplainsCriticalGatesAndCompletedSaveCannotRepeat' }
+    )
+}
 $results = @()
 foreach ($case in $cases) {
     $caseDir = Join-Path $evidence $case.name
@@ -69,22 +77,17 @@ foreach ($case in $cases) {
     $mutatedSourceText = $sourceText
     switch ($case.mutation) {
         'copy' {
-            $copyBefore = @'
-                            Text(
-                                "我已核对上方完整资料、接收方和模型，并授权本次发送。",
-                                modifier = Modifier.clickable { agentPreviewAcknowledged = showSendingContent },
-                                style = MaterialTheme.typography.bodySmall
-                            )
-'@
-            $copyAfter = @'
-                            Text(
-                                "我已查看本次范围、接收方和模型，确认开始。",
-                                modifier = Modifier.clickable { agentPreviewAcknowledged = showSendingContent },
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-'@
-            $mutatedSourceText = Replace-Unique $mutatedSourceText $copyBefore.TrimEnd("`r", "`n") $copyAfter.TrimEnd("`r", "`n")
+            $mutatedSourceText = Replace-Unique $mutatedSourceText '"我已核对上方完整资料、接收方和模型，并授权本次发送。"' '"我已查看本次范围、接收方和模型，确认开始。"'
             if ($mutatedSourceText -ceq $sourceText) { throw 'Cosmetic mutation did not alter the production UI source' }
+        }
+        'progressOwner' {
+            $helper = Replace-Unique $helper 'incoming == null || !identityCurrent || incoming.taskId != ownedTaskId ||' 'incoming == null || false || incoming.taskId != ownedTaskId ||'
+        }
+        'launchAuthorization' {
+            $helper = Replace-Unique $helper 'previewVisible && authorized -> KnowledgeAgentLaunchAction.START' 'previewVisible -> KnowledgeAgentLaunchAction.START'
+        }
+        'saveOutcome' {
+            $helper = Replace-Unique $helper 'if (!verified || terminal != "ready") return KnowledgeAgentSaveState.UNVERIFIED' 'if (terminal != "ready") return KnowledgeAgentSaveState.UNVERIFIED'
         }
         'readability' {
             $helper = Replace-Unique $helper '(priorityNoteId == null || id(it) == priorityNoteId) && isReadable(it)' '(priorityNoteId == null || id(it) == priorityNoteId)'

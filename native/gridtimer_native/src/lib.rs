@@ -20,6 +20,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub mod ai_client;
+mod android_agent_progress;
 #[cfg(any(target_os = "android", test))]
 mod android_agent_registry;
 #[cfg(any(target_os = "android", test))]

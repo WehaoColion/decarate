@@ -1,5 +1,8 @@
+use crate::android_agent_progress::{AgentProgress, AgentTerminal};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 const MAX_TASK_RECORDS: usize = 256;
@@ -13,6 +16,7 @@ pub(crate) enum AgentRegistryError {
 
 struct AgentTaskRecord {
     cancelled: Arc<AtomicBool>,
+    progress: Arc<AgentProgress>,
     registered: bool,
     running: bool,
 }
@@ -64,6 +68,7 @@ impl AgentRunRegistry {
             task_id.to_string(),
             AgentTaskRecord {
                 cancelled: Arc::clone(&cancelled),
+                progress: Arc::new(AgentProgress::new(task_id, Arc::clone(&cancelled))),
                 registered: true,
                 running: true,
             },
@@ -76,7 +81,7 @@ impl AgentRunRegistry {
             return Err(AgentRegistryError::InvalidTaskId);
         }
         if let Some(record) = self.records.get(task_id) {
-            record.cancelled.store(true, Ordering::Release);
+            record.progress.request_cancel();
             return Ok(());
         }
         if self.records.len() >= self.capacity || self.cancellation_overflow {
@@ -85,15 +90,32 @@ impl AgentRunRegistry {
             self.cancellation_overflow = true;
             return Err(AgentRegistryError::CapacityReached);
         }
+        let cancelled = Arc::new(AtomicBool::new(true));
         self.records.insert(
             task_id.to_string(),
             AgentTaskRecord {
-                cancelled: Arc::new(AtomicBool::new(true)),
+                cancelled: Arc::clone(&cancelled),
+                progress: Arc::new(AgentProgress::new(task_id, cancelled)),
                 registered: false,
                 running: false,
             },
         );
         Ok(())
+    }
+
+    pub(crate) fn progress(&self, task_id: &str) -> Option<Arc<AgentProgress>> {
+        self.records
+            .get(task_id)
+            .map(|record| Arc::clone(&record.progress))
+    }
+
+    pub(crate) fn progress_for_run(
+        &self,
+        task_id: &str,
+        expected: &Arc<AtomicBool>,
+    ) -> Option<Arc<AgentProgress>> {
+        let record = self.records.get(task_id)?;
+        Arc::ptr_eq(&record.cancelled, expected).then(|| Arc::clone(&record.progress))
     }
 
     pub(crate) fn complete(&mut self, task_id: &str, expected: &Arc<AtomicBool>) -> bool {
@@ -103,6 +125,7 @@ impl AgentRunRegistry {
         if !Arc::ptr_eq(&record.cancelled, expected) {
             return false;
         }
+        record.progress.finish(AgentTerminal::Failed);
         record.running = false;
         true
     }
@@ -227,5 +250,45 @@ mod tests {
         assert!(registry.finish("missing"));
         assert!(registry.register("active").is_ok());
         assert!(!registry.finish("active"));
+    }
+    #[test]
+    fn progress_queries_do_not_register_tasks_and_old_instances_cannot_update_new_runs() {
+        use crate::android_agent_progress::AgentProgressEvent;
+        let mut registry = AgentRunRegistry::with_capacity(1);
+        assert!(registry.progress("missing").is_none());
+        assert!(registry.records.is_empty());
+        registry.cancel("task").unwrap();
+        let old_flag = registry.register("task").unwrap();
+        let old = registry.progress_for_run("task", &old_flag).unwrap();
+        let waiting = serde_json::to_value(old.snapshot()).unwrap();
+        assert_eq!(waiting["cancelRequested"], true);
+        assert_eq!(waiting["requests"], 0);
+        assert!(registry.complete("task", &old_flag));
+        assert!(registry.finish("task"));
+        let current_flag = registry.register("task").unwrap();
+        let current = registry.progress_for_run("task", &current_flag).unwrap();
+        assert!(registry.progress_for_run("task", &old_flag).is_none());
+        assert!(!Arc::ptr_eq(&old, &current));
+        assert!(!old.apply(AgentProgressEvent::RequestStarted));
+        assert!(!registry.complete("task", &old_flag));
+        let current_snapshot = serde_json::to_value(current.snapshot()).unwrap();
+        assert_eq!(current_snapshot["requests"], 0);
+        assert_eq!(current_snapshot["cancelRequested"], false);
+        assert_eq!(current_snapshot["terminal"], "running");
+    }
+
+    #[test]
+    fn progress_late_cancel_does_not_overwrite_a_completed_terminal() {
+        let mut registry = AgentRunRegistry::with_capacity(1);
+        let flag = registry.register("task").unwrap();
+        let progress = registry.progress_for_run("task", &flag).unwrap();
+        assert_eq!(progress.finish(AgentTerminal::Ready), AgentTerminal::Ready);
+        registry.cancel("task").unwrap();
+        assert!(!flag.load(Ordering::Acquire));
+        assert!(registry.complete("task", &flag));
+        let snapshot = serde_json::to_value(registry.progress("task").unwrap().snapshot()).unwrap();
+        assert_eq!(snapshot["terminal"], "ready");
+        assert_eq!(snapshot["requestInFlight"], false);
+        assert_eq!(snapshot["cancelRequested"], false);
     }
 }

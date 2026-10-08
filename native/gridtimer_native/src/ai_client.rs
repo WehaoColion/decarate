@@ -1,3 +1,4 @@
+use crate::android_agent_progress::AgentProgressEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -261,6 +262,7 @@ pub fn run_android_knowledge_agent(
         scope_json,
         cancelled,
         ANDROID_AGENT_INSTRUCTIONS,
+        None,
     )
 }
 
@@ -281,6 +283,32 @@ pub fn run_android_knowledge_agent_review(
         scope_json,
         cancelled,
         &instructions,
+        None,
+    )
+}
+
+pub(crate) fn run_android_knowledge_agent_observed(
+    api_key: &str,
+    base_url: &str,
+    model: &str,
+    scope_json: &str,
+    cancelled: &AtomicBool,
+    review: bool,
+    observer: &dyn Fn(AgentProgressEvent) -> bool,
+) -> AndroidAgentResult {
+    let instructions = if review {
+        format!("{ANDROID_AGENT_INSTRUCTIONS}\n第二阶段深度核验。请独立重新执行用户的完整原任务：重新检索并读取同一批授权资料，重点寻找事实冲突、遗漏、无来源结论和不必要推断，然后生成一份完整替代草稿。不得依赖首轮草稿内容，不得引入授权资料之外的事实，也不得声称已经保存或执行待办。")
+    } else {
+        ANDROID_AGENT_INSTRUCTIONS.to_string()
+    };
+    run_android_knowledge_agent_with_instructions(
+        api_key,
+        base_url,
+        model,
+        scope_json,
+        cancelled,
+        &instructions,
+        Some(observer),
     )
 }
 
@@ -291,6 +319,7 @@ fn run_android_knowledge_agent_with_instructions(
     scope_json: &str,
     cancelled: &AtomicBool,
     instructions: &str,
+    observer: Option<&dyn Fn(AgentProgressEvent) -> bool>,
 ) -> AndroidAgentResult {
     let api_key = api_key.trim();
     let model = if model.trim().is_empty() {
@@ -339,13 +368,14 @@ fn run_android_knowledge_agent_with_instructions(
         );
     }
     let mut transport = |body: &Value| send_android_agent_response(api_key, &base_url, body);
-    run_android_agent_protocol_with_instructions(
+    run_android_agent_protocol_with_progress(
         &question,
         &documents,
         &recipient_host,
         model,
         cancelled,
         instructions,
+        observer,
         &mut transport,
     )
 }
@@ -424,24 +454,38 @@ fn run_android_agent_protocol<F>(
 where
     F: FnMut(&Value) -> Result<Value, String>,
 {
-    run_android_agent_protocol_with_instructions(
+    run_android_agent_protocol_with_progress(
         question,
         documents,
         recipient_host,
         model,
         cancelled,
         ANDROID_AGENT_INSTRUCTIONS,
+        None,
         transport,
     )
 }
 
-fn run_android_agent_protocol_with_instructions<F>(
+struct AgentRequestProgress<'a> {
+    observer: Option<&'a dyn Fn(AgentProgressEvent) -> bool>,
+}
+
+impl Drop for AgentRequestProgress<'_> {
+    fn drop(&mut self) {
+        if let Some(observer) = self.observer {
+            observer(AgentProgressEvent::RequestFinished);
+        }
+    }
+}
+
+fn run_android_agent_protocol_with_progress<F>(
     question: &str,
     documents: &HashMap<String, AndroidAgentDocument>,
     recipient_host: &str,
     model: &str,
     cancelled: &AtomicBool,
     instructions: &str,
+    observer: Option<&dyn Fn(AgentProgressEvent) -> bool>,
     transport: &mut F,
 ) -> AndroidAgentResult
 where
@@ -503,8 +547,23 @@ where
             "tool_choice":if round == 0 {"required"} else {"auto"},
             "parallel_tool_calls":false
         });
+        if cancelled.load(Ordering::Acquire)
+            || observer.is_some_and(|observe| !observe(AgentProgressEvent::RequestStarted))
+        {
+            return agent_failed(
+                "已取消后续请求，本次结果未完成",
+                recipient_host,
+                model,
+                request_count,
+                tool_call_count,
+                trace,
+            );
+        }
+        let request_progress = AgentRequestProgress { observer };
         request_count += 1;
-        let response = match transport(&body) {
+        let transport_result = transport(&body);
+        drop(request_progress);
+        let response = match transport_result {
             Ok(value) => value,
             Err(message) => {
                 return agent_failed(
@@ -629,6 +688,11 @@ where
                 &mut read_ids,
                 &mut draft,
             );
+            if let Some(observer) = observer {
+                observer(AgentProgressEvent::ToolFinished {
+                    documents_read: read_ids.len(),
+                });
+            }
             let (tool_output, item_trace) = match outcome {
                 Ok(value) => value,
                 Err(message) => (
@@ -774,6 +838,9 @@ fn execute_android_agent_tool(
                 .saturating_add(ANDROID_AGENT_READ_CHUNK_CHARS)
                 .min(chars.len());
             let content = chars[offset..end].iter().collect::<String>();
+            if !has_visible_text(&content) {
+                return Err("这段资料没有可读取正文，请调整读取位置".to_string());
+            }
             read_ids.insert(id.clone());
             json!({"ok":true,"id":document.id,"title":document.title,"folder":document.folder,"offset":offset,"nextOffset":end,"totalChars":chars.len(),"hasMore":end < chars.len(),"content":content})
         }
@@ -2498,5 +2565,153 @@ mod tests {
         assert_eq!(body["store"], false);
         assert_eq!(body["text"]["format"]["strict"], true);
         assert_eq!(body["text"]["format"]["type"], "json_schema");
+    }
+    #[test]
+    fn agent_progress_follows_transport_and_counts_only_unique_nonempty_reads() {
+        use crate::android_agent_progress::AgentProgress;
+        let flag = std::sync::Arc::new(AtomicBool::new(false));
+        let progress = AgentProgress::new("task", std::sync::Arc::clone(&flag));
+        let events = std::cell::RefCell::new(Vec::new());
+        let observer = |event| {
+            events.borrow_mut().push(event);
+            progress.apply(event)
+        };
+        let mut documents = sample_agent_documents();
+        let end = documents["page-a"].content.chars().count();
+        documents.insert(
+            "blank".to_string(),
+            AndroidAgentDocument {
+                id: "blank".to_string(),
+                title: "待办".to_string(),
+                folder: "secret-title".to_string(),
+                content: " \t\n".to_string(),
+            },
+        );
+        let mut step = 0;
+        let result = run_android_agent_protocol_with_progress(
+            "整理待办",
+            &documents,
+            "api.example.test",
+            "model",
+            &flag,
+            ANDROID_AGENT_INSTRUCTIONS,
+            Some(&observer),
+            &mut |_| {
+                step += 1;
+                let snapshot = serde_json::to_value(progress.snapshot()).unwrap();
+                assert_eq!(snapshot["requests"], step);
+                assert_eq!(snapshot["requestInFlight"], true);
+                assert_eq!(snapshot["activity"], "model");
+                Ok(match step {
+                    1 => agent_reply(json!([agent_call(
+                        "s",
+                        "search_knowledge",
+                        json!({"query":"待办"})
+                    )])),
+                    2 => agent_reply(json!([
+                        agent_call(
+                            "r0",
+                            "read_document",
+                            json!({"document_id":"page-a","offset":end})
+                        ),
+                        agent_call(
+                            "rb",
+                            "read_document",
+                            json!({"document_id":"blank","offset":0})
+                        ),
+                        agent_call(
+                            "r1",
+                            "read_document",
+                            json!({"document_id":"page-a","offset":0})
+                        ),
+                        agent_call(
+                            "r2",
+                            "read_document",
+                            json!({"document_id":"page-a","offset":0})
+                        )
+                    ])),
+                    3 => agent_reply(json!([agent_call(
+                        "d",
+                        "propose_new_document",
+                        json!({
+                            "title":"草稿", "content":"整理正文", "action_items":[], "source_ids":["page-a"]
+                        })
+                    )])),
+                    _ => agent_reply(
+                        json!([{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"完成"}]}]),
+                    ),
+                })
+            },
+        );
+        assert!(result.ok, "{}", result.message);
+        assert_eq!(result.requests, 4);
+        assert_eq!(result.tool_calls, 6);
+        let snapshot = serde_json::to_value(progress.snapshot()).unwrap();
+        assert_eq!(snapshot["requests"], result.requests);
+        assert_eq!(snapshot["toolCalls"], result.tool_calls);
+        assert_eq!(snapshot["documentsRead"], 1);
+        assert_eq!(snapshot["requestInFlight"], false);
+        let reads = events
+            .borrow()
+            .iter()
+            .filter_map(|event| match event {
+                AgentProgressEvent::ToolFinished { documents_read } => Some(*documents_read),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(reads, vec![0, 0, 0, 1, 1, 1]);
+        let snapshot = snapshot.to_string();
+        assert!(!snapshot.contains("secret-title"));
+        assert!(!snapshot.contains("整理正文"));
+    }
+
+    #[test]
+    fn agent_progress_cancellation_and_transport_errors_release_in_flight_requests() {
+        use crate::android_agent_progress::{AgentProgress, AgentTerminal};
+        for cancel_in_flight in [false, true] {
+            let flag = std::sync::Arc::new(AtomicBool::new(false));
+            let progress = AgentProgress::new("task", std::sync::Arc::clone(&flag));
+            let observer = |event| progress.apply(event);
+            let mut calls = 0;
+            let result = run_android_agent_protocol_with_progress(
+                "整理待办",
+                &sample_agent_documents(),
+                "api.example.test",
+                "model",
+                &flag,
+                ANDROID_AGENT_INSTRUCTIONS,
+                Some(&observer),
+                &mut |_| {
+                    calls += 1;
+                    assert_eq!(
+                        serde_json::to_value(progress.snapshot()).unwrap()["requestInFlight"],
+                        true
+                    );
+                    if cancel_in_flight {
+                        progress.request_cancel();
+                        let snapshot = serde_json::to_value(progress.snapshot()).unwrap();
+                        assert_eq!(snapshot["cancelRequested"], true);
+                        assert_eq!(snapshot["terminal"], "running");
+                        assert_eq!(snapshot["requestInFlight"], true);
+                    }
+                    Err("transport failure".to_string())
+                },
+            );
+            assert!(!result.ok);
+            assert_eq!(calls, 1);
+            assert_eq!(
+                serde_json::to_value(progress.snapshot()).unwrap()["requestInFlight"],
+                false
+            );
+            assert_eq!(
+                progress.finish(AgentTerminal::Failed),
+                if cancel_in_flight {
+                    AgentTerminal::Cancelled
+                } else {
+                    AgentTerminal::Failed
+                }
+            );
+            assert!(!progress.apply(AgentProgressEvent::RequestStarted));
+        }
     }
 }
