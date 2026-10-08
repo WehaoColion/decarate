@@ -254,6 +254,44 @@ pub fn run_android_knowledge_agent(
     scope_json: &str,
     cancelled: &AtomicBool,
 ) -> AndroidAgentResult {
+    run_android_knowledge_agent_with_instructions(
+        api_key,
+        base_url,
+        model,
+        scope_json,
+        cancelled,
+        ANDROID_AGENT_INSTRUCTIONS,
+    )
+}
+
+pub fn run_android_knowledge_agent_review(
+    api_key: &str,
+    base_url: &str,
+    model: &str,
+    scope_json: &str,
+    cancelled: &AtomicBool,
+) -> AndroidAgentResult {
+    let instructions = format!(
+        "{ANDROID_AGENT_INSTRUCTIONS}\n第二阶段深度核验。请独立重新执行用户的完整原任务：重新检索并读取同一批授权资料，重点寻找事实冲突、遗漏、无来源结论和不必要推断，然后生成一份完整替代草稿。不得依赖首轮草稿内容，不得引入授权资料之外的事实，也不得声称已经保存或执行待办。"
+    );
+    run_android_knowledge_agent_with_instructions(
+        api_key,
+        base_url,
+        model,
+        scope_json,
+        cancelled,
+        &instructions,
+    )
+}
+
+fn run_android_knowledge_agent_with_instructions(
+    api_key: &str,
+    base_url: &str,
+    model: &str,
+    scope_json: &str,
+    cancelled: &AtomicBool,
+    instructions: &str,
+) -> AndroidAgentResult {
     let api_key = api_key.trim();
     let model = if model.trim().is_empty() {
         DEFAULT_AI_MODEL
@@ -301,12 +339,13 @@ pub fn run_android_knowledge_agent(
         );
     }
     let mut transport = |body: &Value| send_android_agent_response(api_key, &base_url, body);
-    run_android_agent_protocol(
+    run_android_agent_protocol_with_instructions(
         &question,
         &documents,
         &recipient_host,
         model,
         cancelled,
+        instructions,
         &mut transport,
     )
 }
@@ -373,12 +412,36 @@ fn android_agent_tools(include_search_only: bool) -> Vec<Value> {
     ]
 }
 
+#[cfg(test)]
 fn run_android_agent_protocol<F>(
     question: &str,
     documents: &HashMap<String, AndroidAgentDocument>,
     recipient_host: &str,
     model: &str,
     cancelled: &AtomicBool,
+    transport: &mut F,
+) -> AndroidAgentResult
+where
+    F: FnMut(&Value) -> Result<Value, String>,
+{
+    run_android_agent_protocol_with_instructions(
+        question,
+        documents,
+        recipient_host,
+        model,
+        cancelled,
+        ANDROID_AGENT_INSTRUCTIONS,
+        transport,
+    )
+}
+
+fn run_android_agent_protocol_with_instructions<F>(
+    question: &str,
+    documents: &HashMap<String, AndroidAgentDocument>,
+    recipient_host: &str,
+    model: &str,
+    cancelled: &AtomicBool,
+    instructions: &str,
     transport: &mut F,
 ) -> AndroidAgentResult
 where
@@ -434,7 +497,7 @@ where
             "store":false,
             "reasoning":{"effort":"none"},
             "max_output_tokens":1800,
-            "instructions":ANDROID_AGENT_INSTRUCTIONS,
+            "instructions":instructions,
             "input":history,
             "tools":android_agent_tools(round == 0),
             "tool_choice":if round == 0 {"required"} else {"auto"},

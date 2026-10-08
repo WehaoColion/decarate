@@ -1,3 +1,4 @@
+v0.0.7 - 纳入安卓知识Agent深度复核说明。
 v0.0.6 - 纳入安卓结构页编辑验收与后续路线。
 
 # 项目文档
@@ -5,6 +6,8 @@ v0.0.6 - 纳入安卓结构页编辑验收与后续路线。
 [全部版本更新说明](releases/README.md)
 
 ## Android 验收与性能记录
+
+- [知识Agent独立深度复核](android/agent_deep_review_upgrade.md)
 
 - [FlowUs 功能对照与安卓结构页补齐](android/flowus_android_gap_audit.md)
 - [安卓结构页编辑与持久化验收](android/structured_mobile_acceptance.md)

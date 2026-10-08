@@ -1,3 +1,4 @@
+# v0.0.2 - Verify review-gated save and mode-bound draft context with isolated mutations.
 # v0.0.1 - Verify task Agent authorization and save-confirmation gates with isolated JUnit mutations.
 [CmdletBinding()]
 param([string]$Version = '2.23.2.19')
@@ -52,7 +53,8 @@ $cases = @(
     @{ name='baseline'; mutation=''; requiredFailure='' },
     @{ name='cosmeticCopy'; mutation='copy'; requiredFailure='' },
     @{ name='removedAuthorization'; mutation='authorization'; requiredFailure='agentRequiresExplicitAuthorizationConfiguredModelAndReadableDocuments' },
-    @{ name='removedSaveConfirmation'; mutation='confirmation'; requiredFailure='agentOnlySavesACompletedDraftAfterUserConfirmation' }
+    @{ name='removedSaveConfirmation'; mutation='confirmation'; requiredFailure='agentOnlySavesACompletedDraftAfterUserConfirmation' },
+    @{ name='removedReviewVerification'; mutation='review'; requiredFailure='agentCannotSaveDraftUntilVerificationPasses' }
 )
 $results = @()
 foreach ($case in $cases) {
@@ -81,6 +83,9 @@ foreach ($case in $cases) {
         }
         'authorization' {
             $helper = Replace-Unique $helper 'closed || pending != null || !authorized || !configured || question.isBlank() || documentCount !in 1..30' 'closed || pending != null || !configured || question.isBlank() || documentCount !in 1..30'
+        }
+        'review' {
+            $helper = Replace-Unique $helper 'verified && completeDraft' 'completeDraft'
         }
         'confirmation' {
             $helper = Replace-Unique $helper '!closed && identityCurrent && contextCurrent && hasDraft && userConfirmed' '!closed && identityCurrent && contextCurrent && hasDraft'

@@ -1,20 +1,17 @@
 //! Android's explicit, synthetic AI connection test. No workspace state is read.
 
+use crate::android_agent_registry::AgentRunRegistry;
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 use zeroize::Zeroizing;
 
-#[path = "android_agent_upgrade.rs"]
-mod android_agent_upgrade;
+static AGENT_RUNS: OnceLock<Mutex<AgentRunRegistry>> = OnceLock::new();
 
-static AGENT_RUNS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
-
-fn agent_runs() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
-    AGENT_RUNS.get_or_init(|| Mutex::new(HashMap::new()))
+fn agent_runs() -> &'static Mutex<AgentRunRegistry> {
+    AGENT_RUNS.get_or_init(|| Mutex::new(AgentRunRegistry::default()))
 }
 
 struct AgentRunGuard {
@@ -25,12 +22,7 @@ struct AgentRunGuard {
 impl Drop for AgentRunGuard {
     fn drop(&mut self) {
         if let Ok(mut runs) = agent_runs().lock() {
-            if runs
-                .get(&self.task_id)
-                .is_some_and(|active| Arc::ptr_eq(active, &self.cancelled))
-            {
-                runs.remove(&self.task_id);
-            }
+            runs.complete(&self.task_id, &self.cancelled);
         }
     }
 }
@@ -66,21 +58,20 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     if task_id.trim().is_empty() || task_id.len() > 100 {
         return std::ptr::null_mut();
     }
-    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancelled = {
+        let Ok(mut runs) = agent_runs().lock() else {
+            return std::ptr::null_mut();
+        };
+        let Ok(cancelled) = runs.register(&task_id) else {
+            return std::ptr::null_mut();
+        };
+        cancelled
+    };
     let guard = AgentRunGuard {
         task_id: task_id.clone(),
         cancelled: Arc::clone(&cancelled),
     };
-    {
-        let Ok(mut runs) = agent_runs().lock() else {
-            return std::ptr::null_mut();
-        };
-        if runs.contains_key(&task_id) {
-            return std::ptr::null_mut();
-        }
-        runs.insert(task_id.clone(), Arc::clone(&cancelled));
-    }
-    let result = android_agent_upgrade::run_enhanced_android_knowledge_agent(
+    let result = crate::android_agent_upgrade::run_enhanced_android_knowledge_agent(
         &api_key,
         &base_url,
         &model,
@@ -106,14 +97,33 @@ pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nat
     let Ok(task_id) = env.get_string(&task_id).map(String::from) else {
         return JNI_FALSE;
     };
-    let Ok(runs) = agent_runs().lock() else {
+    let Ok(mut runs) = agent_runs().lock() else {
         return JNI_FALSE;
     };
-    let Some(cancelled) = runs.get(&task_id) else {
+    if runs.cancel(&task_id).is_ok() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_ofairyo_gridtimer_core_NativeOptimizerBridge_nativeFinishAndroidKnowledgeAgent(
+    mut env: JNIEnv,
+    _class: JClass,
+    task_id: JString,
+) -> jboolean {
+    let Ok(task_id) = env.get_string(&task_id).map(String::from) else {
         return JNI_FALSE;
     };
-    cancelled.store(true, Ordering::Release);
-    JNI_TRUE
+    let Ok(mut runs) = agent_runs().lock() else {
+        return JNI_FALSE;
+    };
+    if runs.finish(&task_id) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 #[no_mangle]

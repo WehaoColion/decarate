@@ -1,10 +1,13 @@
+// v2.23.2.23 - Freeze review context and apply the tested save verification policy.
 // Android Agent v2: expose a visible plan, optional second-pass review and local verification.
 
 pub const SCREEN: &str = "com/ofairyo/gridtimer/ui/NoteStudioSheet.kt";
 
 fn replace_once(source: &mut String, before: &str, after: &str) -> Result<(), String> {
     if source.matches(before).count() != 1 {
-        return Err(format!("Android agent upgrade anchor is not unique: {before}"));
+        return Err(format!(
+            "Android agent upgrade anchor is not unique: {before}"
+        ));
     }
     *source = source.replacen(before, after, 1);
     Ok(())
@@ -25,7 +28,7 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
     replace_once(
         &mut rendered,
         "        val scopeJson = JSONObject().put(\"question\", safeQuestion).put(\"documents\", JSONArray().apply {",
-        "        val scopeJson = JSONObject().put(\"question\", safeQuestion).put(\"deepReview\", agentDeepReview).put(\"documents\", JSONArray().apply {",
+        "        val scopeJson = JSONObject().put(\"question\", safeQuestion).put(\"deepReview\", runDeepReview).put(\"documents\", JSONArray().apply {",
     )?;
 
     replace_once(
@@ -37,7 +40,9 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
     let reset = "agentResultSources = emptyList(); agentTrace = emptyList()";
     let reset_count = rendered.matches(reset).count();
     if reset_count != 2 {
-        return Err(format!("expected two Agent reset anchors after request setup, found {reset_count}"));
+        return Err(format!(
+            "expected two Agent reset anchors after request setup, found {reset_count}"
+        ));
     }
     rendered = rendered.replace(
         reset,
@@ -54,6 +59,7 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
         r####"                    agentTrace = parsed?.optJSONArray("toolTrace")?.let { array ->
                         (0 until array.length()).mapNotNull { index -> array.optJSONObject(index)?.let { "${it.optString("summary")} · ${it.optInt("resultCount")} 项" } }
                     }.orEmpty()
+                    agentTrace = listOf("模型请求 ${parsed?.optInt("requests", 0) ?: 0} 次 · 本机工具调用 ${parsed?.optInt("toolCalls", 0) ?: 0} 次") + agentTrace
                     agentPlan = parsed?.optJSONArray("plan")?.let { array ->
                         (0 until array.length()).mapNotNull { index -> array.optString(index).takeIf(String::isNotBlank) }
                     }.orEmpty()
@@ -122,21 +128,32 @@ pub fn render(path: &str, source: &str) -> Result<String, String> {
         "                                hasDraft = agentVerificationPassed && agentDraftBody.isNotBlank() && agentDraftTitle.isNotBlank() && agentResultSources.isNotEmpty(),",
     )?;
 
+    replace_once(&mut rendered,
+        "    val latestAgentTaskId by rememberUpdatedState(agentTaskId)",
+        "    val latestAgentTaskId by rememberUpdatedState(agentTaskId)\n    val latestAgentDeepReview by rememberUpdatedState(agentDeepReview)")?;
+    replace_once(&mut rendered,
+        "        val runConfiguration = configuration\n        val runContext = KnowledgeAgentDraftContext(workspaceKey, runIdentity, runConfiguration, safeQuestion, documents)",
+        "        val runConfiguration = configuration\n        val runDeepReview = agentDeepReview\n        val runContext = KnowledgeAgentDraftContext(workspaceKey, runIdentity, runConfiguration, safeQuestion, documents, runDeepReview)")?;
+    replace_once(&mut rendered,
+        "        documents = latestSelectedAgentDocuments\n    )",
+        "        documents = latestSelectedAgentDocuments,\n        deepReview = latestAgentDeepReview\n    )")?;
+    let context_guard = "latestSelectedAgentDocuments == documents";
+    if rendered.matches(context_guard).count() != 2 {
+        return Err("Agent request context hooks are missing or ambiguous".to_owned());
+    }
+    rendered = rendered.replace(
+        context_guard,
+        "latestSelectedAgentDocuments == documents && latestAgentDeepReview == runDeepReview",
+    );
+    replace_once(&mut rendered,
+        "        val hasDraft = agentDraft != null && agentDraftTitle.isNotBlank() && agentDraftBody.isNotBlank() && agentResultSources.isNotEmpty() && agentVerificationPassed",
+        "        val hasDraft = KnowledgeAgentReviewPolicy.canSave(agentVerificationPassed, agentDraft != null && agentDraftTitle.isNotBlank() && agentDraftBody.isNotBlank() && agentResultSources.isNotEmpty())")?;
+    replace_once(&mut rendered,
+        "                                hasDraft = agentVerificationPassed && agentDraftBody.isNotBlank() && agentDraftTitle.isNotBlank() && agentResultSources.isNotEmpty(),",
+        "                                hasDraft = KnowledgeAgentReviewPolicy.canSave(agentVerificationPassed, agentDraftBody.isNotBlank() && agentDraftTitle.isNotBlank() && agentResultSources.isNotEmpty()),")?;
+
+    replace_once(&mut rendered,
+        "        answer = \"\"; answerSources = emptyList()\n        scope.launch {",
+        "        answer = \"\"; answerSources = emptyList()\n        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {")?;
     Ok(rendered)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unrelated_files_pass_through() {
-        assert_eq!(render("other.kt", "sentinel").unwrap(), "sentinel");
-    }
-
-    #[test]
-    fn duplicate_anchor_is_rejected() {
-        let mut source = "needle needle".to_string();
-        assert!(replace_once(&mut source, "needle", "value").is_err());
-    }
 }

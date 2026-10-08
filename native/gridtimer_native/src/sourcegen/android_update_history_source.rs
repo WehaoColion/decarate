@@ -1,3 +1,4 @@
+// v2.23.2.23 - Record knowledge Agent independent review and save safeguards.
 // v2.23.2.22 - Record compact sticky search and retain the previous filter fix.
 // v2.23.2.20 - Repair old sticky visibility and update-history fallback.
 // v2.23.2.19 - Record sticky-note source navigation and current version.
@@ -23,7 +24,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.22";
+pub const LATEST_VERSION: &str = "2.23.2.23";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -53,6 +54,27 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.23",
+        updatedAt = "2026-10-08 07:30",
+        summary = "知识 Agent 新增独立深度复核与保存前核验",
+        sections = listOf(
+            AndroidUpdateSection("执行与深度复核", listOf(
+                "在 AI 面板选择任务 Agent，填写任务目标，逐条勾选需要处理的便签或知识页，再展开完整发送预览并授权。本次只处理已选择且未删除、未加密的资料，不自动修改原文。",
+                "深度核验默认开启。首轮完成后，模型在完全相同的授权范围内独立重新检索、分段阅读并生成复核草稿；第二轮不接收首轮草稿正文，保留完整任务目标。关闭深度核验后，只执行首轮并保留本机检查。",
+                "发送前显示执行计划及调用上限：首轮最多6次模型请求，开启深度核验后第二轮最多再增加6次。结果中的工具记录分别标明首轮和复核，不把尚未执行的步骤当成完成。"
+            )),
+            AndroidUpdateSection("保存与失效保护", listOf(
+                "保存前检查草稿是否完整、各阶段工具链是否完成、来源编号是否仍在本次授权范围，以及来源和待办是否重复。第二轮失败、任务取消或核验未通过时，保存入口保持不可用；可重新运行。",
+                "更换账户、工作区、任务目标、资料正文、AI配置或深度核验模式后，旧任务和草稿不再用于保存。已发出的请求可能需要等待返回，取消后不再开始后续请求。",
+                "标题和正文仍可编辑。编辑后说明核验只覆盖模型生成版本，点击确认保存时使用当前编辑内容；最终仍通过原知识页持久化路径创建新页，不覆盖来源。"
+            )),
+            AndroidUpdateSection("版本与验收范围", listOf(
+                "安卓2.23.2.23，versionCode 22292，沿用原包名及正式签名。Windows客户端、同步服务与数据格式保持原版。历版更新说明保留，继续支持折叠、点按复制和整版复制。",
+                "本机执行Rust领域检查、源码生成、正式版JVM单元测试、lint及正式签名构建。模型的实际复核质量、手机上的操作效果与覆盖安装由本次候选验收确认，不以编译成功代替真机测试。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.22",
         updatedAt = "2026-10-08 04:36",
@@ -600,7 +622,7 @@ mod tests {
             .map(|version| version.trim_matches('"'))
             .collect::<Vec<_>>();
         assert_eq!(versions.first().copied(), Some(LATEST_VERSION));
-        assert_eq!(versions.get(1).copied(), Some("2.23.2.21"));
+        assert_eq!(versions.get(1).copied(), Some("2.23.2.22"));
         assert!(versions.contains(&"2.23.2.20"));
         assert!(versions.contains(&"2.23.2.17"));
         assert!(versions.contains(&"2.23.2.16"));

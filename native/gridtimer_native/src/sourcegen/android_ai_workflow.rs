@@ -1,3 +1,4 @@
+// v2.23.2.23 - Bind review mode and verified draft state to the save boundary.
 // v2.23.2.20 - Show every sticky note and preserve complete legacy-note previews.
 // v2.23.2.19 - Open selected Agent sticky-note sources and retain clear source labels.
 // v2.23.2.17 - Add a bounded task Agent with explicit scope and durable draft handoff.
@@ -31,8 +32,20 @@ internal data class KnowledgeAgentDraftContext(
     val identity: String,
     val configuration: AiConfiguration,
     val question: String,
-    val documents: List<KnowledgeAgentSource>
+    val documents: List<KnowledgeAgentSource>,
+    val deepReview: Boolean = false
 )
+
+internal class KnowledgeAgentRunHandle {
+    var taskId: String? = null
+        private set
+    fun started(id: String) { taskId = id }
+    fun finished(id: String) { if (taskId == id) taskId = null }
+}
+
+internal object KnowledgeAgentReviewPolicy {
+    fun canSave(verified: Boolean, completeDraft: Boolean): Boolean = verified && completeDraft
+}
 
 internal enum class KnowledgeAiMode(val wireValue: String) { DIRECT("direct"), KNOWLEDGE("knowledge") }
 
@@ -287,11 +300,32 @@ class KnowledgeAiRequestBoundaryTest {
         val page = KnowledgeAgentSource("page-1", "工作记录", "项目", "当前正文")
         val authorized = KnowledgeAgentDraftContext("workspace-a", "identity-a", config, "整理项目", listOf(page))
         assertEquals(authorized, authorized.copy())
+        assertNotEquals(authorized, authorized.copy(deepReview = true))
         assertNotEquals(authorized, authorized.copy(workspaceKey = "workspace-b"))
         assertNotEquals(authorized, authorized.copy(identity = "identity-b"))
         assertNotEquals(authorized, authorized.copy(configuration = config.copy(model = "other")))
         assertNotEquals(authorized, authorized.copy(question = "另一项任务"))
         assertNotEquals(authorized, authorized.copy(documents = listOf(page.copy(content = "更新后的正文"))))
+    }
+    @Test fun oldWorkspaceRunHandleRetainsOnlyItsOwnCancellationId() {
+        val old = KnowledgeAgentRunHandle()
+        old.started("old-task")
+        val replacement = KnowledgeAgentRunHandle()
+        replacement.started("new-task")
+        assertEquals("old-task", old.taskId)
+        old.finished("another-task")
+        assertEquals("old-task", old.taskId)
+        old.finished("old-task")
+        assertNull(old.taskId)
+        assertEquals("new-task", replacement.taskId)
+    }
+    @Test fun agentCannotSaveDraftUntilVerificationPasses() {
+        val state = KnowledgeAgentRequestBoundary()
+        val ticket = state.begin(true, true, "整理项目", 1)!!
+        assertTrue(state.finish(ticket, true, true))
+        assertFalse(state.beginSave(true, true, KnowledgeAgentReviewPolicy.canSave(false, true), true))
+        assertFalse(state.beginSave(true, true, KnowledgeAgentReviewPolicy.canSave(true, false), true))
+        assertTrue(state.beginSave(true, true, KnowledgeAgentReviewPolicy.canSave(true, true), true))
     }
     @Test fun agentScopeIncludesStickyNotesButExcludesDeletedEncryptedAndOutOfFolderSources() {
         data class Page(val id: String, val kind: String = "DOCUMENT", val deleted: Boolean = false, val encrypted: Boolean = false, val folder: String = "A")
@@ -564,6 +598,7 @@ private fun KnowledgeAiDialog(
     var agentBusy by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf(false) }
     var agentCancelling by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf(false) }
     var agentTaskId by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf<String?>(null) }
+    val agentRunHandle = remember(agentBoundary) { KnowledgeAgentRunHandle() }
     var agentDraft by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf<KnowledgeAgentDraft?>(null) }
     var agentDraftContext by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf<KnowledgeAgentDraftContext?>(null) }
     var agentDraftTitle by remember(workspaceKey, identity, priorityNoteId) { mutableStateOf("") }
@@ -619,7 +654,7 @@ private fun KnowledgeAiDialog(
     }
     fun stopAgent(reason: String) {
         agentBoundary.invalidate()
-        agentTaskId?.let { taskId -> runCatching { NativeOptimizerBridge.cancelAndroidKnowledgeAgent(taskId) } }
+        agentRunHandle.taskId?.let { taskId -> runCatching { NativeOptimizerBridge.cancelAndroidKnowledgeAgent(taskId) } }
         if (agentMode) {
             showSendingContent = false
             agentPreviewAcknowledged = false
@@ -665,7 +700,7 @@ private fun KnowledgeAiDialog(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             boundary.close(); agentBoundary.close()
-            latestAgentTaskId?.let { taskId -> runCatching { NativeOptimizerBridge.cancelAndroidKnowledgeAgent(taskId) } }
+            agentRunHandle.taskId?.let { taskId -> runCatching { NativeOptimizerBridge.cancelAndroidKnowledgeAgent(taskId) } }
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
@@ -768,6 +803,7 @@ private fun KnowledgeAiDialog(
                     .put("folder", document.folder).put("content", document.content))
             }
         }).toString()
+        agentRunHandle.started(runId)
         agentTaskId = runId
         agentBusy = true; agentCancelling = false; agentDraft = null; agentDraftContext = null; agentDraftTitle = ""; agentDraftBody = ""; agentSaving = false; agentPreviewAcknowledged = false
         agentResultSources = emptyList(); agentTrace = emptyList(); statusText = "正在连接 ${runConfiguration.recipientHost}，最多执行 6 次模型请求。"
@@ -826,6 +862,8 @@ private fun KnowledgeAiDialog(
                     statusText = parsed?.optString("message")?.takeIf(String::isNotBlank) ?: "Agent 未能完整完成本次任务。"
                 }
             } finally {
+                runCatching { NativeOptimizerBridge.finishAndroidKnowledgeAgent(runId) }
+                agentRunHandle.finished(runId)
                 if (latestAgentBoundary === agentBoundary) {
                     val wasCancelling = agentCancelling
                     agentBusy = false; agentCancelling = false
