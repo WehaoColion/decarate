@@ -1,3 +1,4 @@
+// v2.23.2.24 - Bind document sources to a fresh readable target and isolate projection failures.
 // v2.23.2.23 - Bind review mode and verified draft state to the save boundary.
 // v2.23.2.20 - Show every sticky note and preserve complete legacy-note previews.
 // v2.23.2.19 - Open selected Agent sticky-note sources and retain clear source labels.
@@ -51,6 +52,23 @@ internal enum class KnowledgeAiMode(val wireValue: String) { DIRECT("direct"), K
 
 internal fun <T> knowledgeAiSourcesForMode(mode: KnowledgeAiMode, loadSources: () -> List<T>): List<T> =
     if (mode == KnowledgeAiMode.DIRECT) emptyList() else loadSources()
+
+internal fun knowledgeAiInitialMode(priorityNoteId: String?): KnowledgeAiMode =
+    if (priorityNoteId == null) KnowledgeAiMode.DIRECT else KnowledgeAiMode.KNOWLEDGE
+
+internal fun <T> selectReadableKnowledgeSources(
+    candidates: List<T>,
+    priorityNoteId: String?,
+    id: (T) -> String,
+    isReadable: (T) -> Boolean
+): List<T> = candidates.filter {
+    (priorityNoteId == null || id(it) == priorityNoteId) && isReadable(it)
+}
+
+internal fun <T, R : Any> projectKnowledgeSources(candidates: List<T>, project: (T) -> R?): List<R> =
+    candidates.mapNotNull { candidate ->
+        try { project(candidate) } catch (_: Exception) { null }
+    }
 
 internal fun <T> selectKnowledgeAgentSources(
     candidates: List<T>,
@@ -326,6 +344,43 @@ class KnowledgeAiRequestBoundaryTest {
         assertFalse(state.beginSave(true, true, KnowledgeAgentReviewPolicy.canSave(false, true), true))
         assertFalse(state.beginSave(true, true, KnowledgeAgentReviewPolicy.canSave(true, false), true))
         assertTrue(state.beginSave(true, true, KnowledgeAgentReviewPolicy.canSave(true, true), true))
+    }
+    @Test fun documentEntryStartsKnowledgeAndOrdinaryEntryStartsDirect() {
+        assertEquals(KnowledgeAiMode.KNOWLEDGE, knowledgeAiInitialMode("target"))
+        assertEquals(KnowledgeAiMode.DIRECT, knowledgeAiInitialMode(null))
+    }
+    @Test fun wholeDocumentUsesFreshReadableTargetWithoutOtherSources() {
+        data class Page(val id: String, val text: String)
+        val pages = listOf(Page("other", "unrelated"), Page("target", "current revision"))
+        val selected = selectReadableKnowledgeSources(pages, "target", Page::id) { true }
+        assertEquals(listOf(Page("target", "current revision")), selected)
+        assertTrue(selectReadableKnowledgeSources(pages, "missing", Page::id) { true }.isEmpty())
+    }
+    @Test fun unreadableWholeDocumentCannotSendEvenWhenOtherPagesExist() {
+        data class Page(val id: String, val deleted: Boolean = false, val encrypted: Boolean = false, val document: Boolean = true)
+        val targets = listOf(Page("target", deleted = true), Page("target", encrypted = true), Page("target", document = false))
+        for (target in targets) {
+            val selected = selectReadableKnowledgeSources(listOf(Page("other"), target), "target", Page::id) {
+                it.document && !it.deleted && !it.encrypted
+            }
+            assertTrue(selected.isEmpty())
+            assertNull(KnowledgeAiRequestBoundary(KnowledgeAiMode.KNOWLEDGE).begin(true, true, "question", selected.size))
+        }
+    }
+    @Test fun failedSourceProjectionIsIsolatedAndTargetFailureCannotSend() {
+        val pages = listOf("bad", "good", "empty")
+        fun project(page: String): String? = when (page) {
+            "bad" -> throw IllegalStateException("Unreadable legacy record")
+            "empty" -> null
+            else -> page
+        }
+        assertEquals(listOf("good"), projectKnowledgeSources(pages, ::project))
+        for (id in listOf("bad", "empty")) {
+            val selected = selectReadableKnowledgeSources(pages, id, { it }) { true }
+            val projected = projectKnowledgeSources(selected, ::project)
+            assertTrue(projected.isEmpty())
+            assertNull(KnowledgeAiRequestBoundary(KnowledgeAiMode.KNOWLEDGE).begin(true, true, "question", projected.size))
+        }
     }
     @Test fun agentScopeIncludesStickyNotesButExcludesDeletedEncryptedAndOutOfFolderSources() {
         data class Page(val id: String, val kind: String = "DOCUMENT", val deleted: Boolean = false, val encrypted: Boolean = false, val folder: String = "A")

@@ -1,3 +1,4 @@
+v0.0.8 - 纳入安卓文档AI打开与来源边界说明。
 v0.0.7 - 纳入安卓知识Agent深度复核说明。
 v0.0.6 - 纳入安卓结构页编辑验收与后续路线。
 
@@ -6,6 +7,8 @@ v0.0.6 - 纳入安卓结构页编辑验收与后续路线。
 [全部版本更新说明](releases/README.md)
 
 ## Android 验收与性能记录
+
+- [文档AI打开与来源边界](android/whole_document_ai_crash_fix.md)
 
 - [知识Agent独立深度复核](android/agent_deep_review_upgrade.md)
 

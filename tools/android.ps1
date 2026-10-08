@@ -1,3 +1,4 @@
+# v0.0.33 - Gate executed document readability tests and the additional mutation case.
 # v0.0.32 - Gate executed Agent review tests and the shared generated save policy.
 # v0.0.31 - Freeze structured page edits and gate their real JVM models and write routes.
 # v0.0.30 - Gate knowledge navigation format, actual JVM suites and generated routing.
@@ -268,14 +269,23 @@ try {
         $upgradeLiteral = [regex]::Match($upgradeHelperSource,'(?s)pub const CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;').Groups['body'].Value
         if($upgradeHelper.Trim() -cne $upgradeLiteral.Trim()){throw 'Tested Agent review helper differs from generated model'}
         $upgradeMutation = Get-Content -LiteralPath (Join-Path $taskEvidence 'agent_mutation/receipt.json') -Raw | ConvertFrom-Json
-        if(!$upgradeMutation.passed -or !$upgradeMutation.productionUnchanged -or $upgradeMutation.cases.Count -ne 5 -or @($upgradeMutation.cases | Where-Object {!$_.passed}).Count -ne 0 -or $upgradeMutation.sourceSha256 -ne (Get-FileHash -LiteralPath (Join-Path $taskCrate 'src/sourcegen/android_ai_workflow.rs') -Algorithm SHA256).Hash.ToLowerInvariant()){throw 'Agent save authorization/review mutation receipt is missing or stale'}
+        $upgradeMutationExpected = if([version]$taskVersion -ge [version]'2.23.2.24'){6}else{5}
+        if(!$upgradeMutation.passed -or !$upgradeMutation.productionUnchanged -or $upgradeMutation.cases.Count -ne $upgradeMutationExpected -or @($upgradeMutation.cases | Where-Object {!$_.passed}).Count -ne 0 -or $upgradeMutation.sourceSha256 -ne (Get-FileHash -LiteralPath (Join-Path $taskCrate 'src/sourcegen/android_ai_workflow.rs') -Algorithm SHA256).Hash.ToLowerInvariant()){throw 'Agent save authorization/review mutation receipt is missing or stale'}
         $registrySource = Get-Content -LiteralPath (Join-Path $taskCrate 'src/android_agent_registry.rs') -Raw
         $registryTestNames = @([regex]::Matches($registrySource,'(?m)#\[test\]\s*fn\s+(\w+)\(') | ForEach-Object {$_.Groups[1].Value})
         if($registryTestNames.Count -lt 1){throw 'Agent cancellation registry tests are missing'}
         foreach($name in $registryTestNames){
             if($upgradeNativeLog -notmatch ('(?m)^test android_agent_registry::tests::'+[regex]::Escape($name)+' \.\.\. ok\s*$')){throw ('Agent cancellation registry test did not execute: '+$name)}
         }
-        Write-TaskJson 'agent_review_acceptance.json' ([ordered]@{passed=$true;nativeTests=$upgradeTestNames.Count;nativeTestNames=$upgradeTestNames;registryTests=$registryTestNames.Count;registryTestNames=$registryTestNames;generatedSaveGates=2;generatedHelperMatchesTestedSource=$true;mutationCases=5;hostOnly=$true;deviceVerified=$false;realProviderVerified=$false})
+        Write-TaskJson 'agent_review_acceptance.json' ([ordered]@{passed=$true;nativeTests=$upgradeTestNames.Count;nativeTestNames=$upgradeTestNames;registryTests=$registryTestNames.Count;registryTestNames=$registryTestNames;generatedSaveGates=2;generatedHelperMatchesTestedSource=$true;mutationCases=$upgradeMutationExpected;hostOnly=$true;deviceVerified=$false;realProviderVerified=$false})
+    }
+    if([version]$taskVersion -ge [version]'2.23.2.24'){
+        [xml]$documentAiResult = Get-Content -LiteralPath (Join-Path $taskRoot 'app/build/test-results/testReleaseUnitTest/TEST-com.ofairyo.gridtimer.ui.KnowledgeAiRequestBoundaryTest.xml') -Raw
+        $documentAiTests=@('documentEntryStartsKnowledgeAndOrdinaryEntryStartsDirect','wholeDocumentUsesFreshReadableTargetWithoutOtherSources','unreadableWholeDocumentCannotSendEvenWhenOtherPagesExist','failedSourceProjectionIsIsolatedAndTargetFailureCannotSend')
+        foreach($name in $documentAiTests){
+            if(@($documentAiResult.testsuite.testcase | Where-Object name -eq $name).Count -ne 1){throw ('Document AI business test did not execute: '+$name)}
+        }
+        Write-TaskJson 'whole_document_ai_acceptance.json' ([ordered]@{passed=$true;tests=$documentAiTests;readabilityMutationPassed=$true;hostOnly=$true;deviceVerified=$false;crashStackAvailable=$false})
     }
     $taskLegalWorkflowIntegration = $null
     if([version]$taskVersion -ge [version]'2.23.2.9'){
