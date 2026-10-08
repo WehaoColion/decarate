@@ -1,3 +1,4 @@
+# v0.0.32 - Gate executed Agent review tests and the shared generated save policy.
 # v0.0.31 - Freeze structured page edits and gate their real JVM models and write routes.
 # v0.0.30 - Gate knowledge navigation format, actual JVM suites and generated routing.
 # v0.0.29 - Include the document text alignment transform in formal Rust formatting.
@@ -49,6 +50,7 @@ function Get-TaskInputs {
     if([version]$taskVersion -ge [version]'2.23.2.10'){$paths += @('tools\verify_document_caret_mutation.ps1','tools\verify_knowledge_header_mutation.ps1') | ForEach-Object {Join-Path $taskRoot $_}}
     if([version]$taskVersion -ge [version]'2.23.2.11'){$paths += Join-Path $taskRoot 'tools\verify_finance_workspace_mutation.ps1'}
     if([version]$taskVersion -ge [version]'2.23.2.12'){$paths += Join-Path $taskRoot 'tools\verify_document_markdown_mutation.ps1'}
+    if([version]$taskVersion -ge [version]'2.23.2.23'){$paths += Join-Path $taskRoot 'tools/verify_android_agent_mutation.ps1'}
     # Cargo gates timer_windows_client behind the desktop feature. Its private
     # desktop/ modules are not inputs to the Android library, generator or tests.
     # Shared library modules (including desktop_*.rs) remain in the snapshot.
@@ -151,6 +153,7 @@ try {
     if([version]$taskVersion -ge [version]'2.23.2.13'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_document_block_alignment.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.15'){$formatPaths += Join-Path $taskCrate 'src\sourcegen\android_knowledge_navigation.rs'}
     if([version]$taskVersion -ge [version]'2.23.2.16'){$formatPaths += @('src\sourcegen\structured_mobile_data.rs','src\sourcegen\structured_mobile_tests.rs') | ForEach-Object {Join-Path $taskCrate $_}}
+    if([version]$taskVersion -ge [version]'2.23.2.23'){$formatPaths += @('src/android_agent_upgrade.rs','src/android_agent_registry.rs','src/sourcegen/android_agent_upgrade.rs') | ForEach-Object {Join-Path $taskCrate $_}}
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
@@ -249,6 +252,30 @@ try {
         }
         Copy-Item -LiteralPath $suitePath -Destination (Join-Path $taskEvidence ($suite.name+'.xml')) -Force
         $taskAiWorkflowCounts[$suite.name] = $suiteExpected
+    }
+    if([version]$taskVersion -ge [version]'2.23.2.23'){
+        $upgradeSource = Get-Content -LiteralPath (Join-Path $taskCrate 'src/android_agent_upgrade.rs') -Raw
+        $upgradeTestNames = @([regex]::Matches($upgradeSource,'(?m)#\[test\]\s*fn\s+(\w+)\(') | ForEach-Object {$_.Groups[1].Value})
+        $upgradeNativeLog = Get-Content -LiteralPath (Join-Path $taskEvidence 'native_tests.log') -Raw
+        if($upgradeTestNames.Count -lt 1){throw 'Agent review domain tests are missing'}
+        foreach($name in $upgradeTestNames){
+            if($upgradeNativeLog -notmatch ('(?m)^test android_agent_upgrade::tests::'+[regex]::Escape($name)+' \.\.\. ok\s*$')){throw ('Agent review test did not execute: '+$name)}
+        }
+        $upgradeStudio = Get-Content -LiteralPath (Join-Path $taskRoot 'app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/NoteStudioSheet.kt') -Raw
+        if(([regex]::Matches($upgradeStudio,'KnowledgeAgentReviewPolicy\.canSave\(')).Count -ne 2 -or !$upgradeStudio.Contains('deepReview = latestAgentDeepReview')){throw 'Agent review gates are not connected to generated save function and button'}
+        $upgradeHelper = Get-Content -LiteralPath (Join-Path $taskRoot 'app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/KnowledgeAiRequestBoundary.kt') -Raw
+        $upgradeHelperSource = Get-Content -LiteralPath (Join-Path $taskCrate 'src/sourcegen/android_ai_workflow.rs') -Raw
+        $upgradeLiteral = [regex]::Match($upgradeHelperSource,'(?s)pub const CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;').Groups['body'].Value
+        if($upgradeHelper.Trim() -cne $upgradeLiteral.Trim()){throw 'Tested Agent review helper differs from generated model'}
+        $upgradeMutation = Get-Content -LiteralPath (Join-Path $taskEvidence 'agent_mutation/receipt.json') -Raw | ConvertFrom-Json
+        if(!$upgradeMutation.passed -or !$upgradeMutation.productionUnchanged -or $upgradeMutation.cases.Count -ne 5 -or @($upgradeMutation.cases | Where-Object {!$_.passed}).Count -ne 0 -or $upgradeMutation.sourceSha256 -ne (Get-FileHash -LiteralPath (Join-Path $taskCrate 'src/sourcegen/android_ai_workflow.rs') -Algorithm SHA256).Hash.ToLowerInvariant()){throw 'Agent save authorization/review mutation receipt is missing or stale'}
+        $registrySource = Get-Content -LiteralPath (Join-Path $taskCrate 'src/android_agent_registry.rs') -Raw
+        $registryTestNames = @([regex]::Matches($registrySource,'(?m)#\[test\]\s*fn\s+(\w+)\(') | ForEach-Object {$_.Groups[1].Value})
+        if($registryTestNames.Count -lt 1){throw 'Agent cancellation registry tests are missing'}
+        foreach($name in $registryTestNames){
+            if($upgradeNativeLog -notmatch ('(?m)^test android_agent_registry::tests::'+[regex]::Escape($name)+' \.\.\. ok\s*$')){throw ('Agent cancellation registry test did not execute: '+$name)}
+        }
+        Write-TaskJson 'agent_review_acceptance.json' ([ordered]@{passed=$true;nativeTests=$upgradeTestNames.Count;nativeTestNames=$upgradeTestNames;registryTests=$registryTestNames.Count;registryTestNames=$registryTestNames;generatedSaveGates=2;generatedHelperMatchesTestedSource=$true;mutationCases=5;hostOnly=$true;deviceVerified=$false;realProviderVerified=$false})
     }
     $taskLegalWorkflowIntegration = $null
     if([version]$taskVersion -ge [version]'2.23.2.9'){

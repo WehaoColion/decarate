@@ -1,3 +1,4 @@
+// v2.23.2.23 Android - Review authorized Agent drafts without changing Windows identity.
 // v2.23.2.22 Android - Integrate compact sticky search without changing Windows identity.
 // v2.23.2.20 Android - Show all sticky notes and retain complete legacy-note content.
 // v2.23.2.16 Android - Add structured pages while preserving Windows identity.
@@ -91,8 +92,8 @@
 
 pub const WINDOWS_APP_VERSION: &str = "1.1.0.7";
 pub const SYNC_SUPERVISOR_MUTEX_NAME: &str = r"Local\GridTimerSyncSupervisor-v1";
-pub const ANDROID_APP_VERSION: &str = "2.23.2.22";
-pub const ANDROID_VERSION_CODE: i32 = 22291;
+pub const ANDROID_APP_VERSION: &str = "2.23.2.23";
+pub const ANDROID_VERSION_CODE: i32 = 22292;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductIdentity {
