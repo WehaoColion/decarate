@@ -243,6 +243,11 @@ fn run() -> io::Result<()> {
             legal_risk_ui_source::TEST_PATH,
             legal_risk_ui_source::TEST_CONTENTS,
         )?;
+        write_source(
+            &unit_test_output_root,
+            android_legal_integration::TEST_PATH,
+            android_legal_integration::TEST_CONTENTS,
+        )?;
     }
 
     write_source(
@@ -366,6 +371,11 @@ fn run() -> io::Result<()> {
         &output_root,
         android_note_background::PATH,
         android_note_background::CONTENTS,
+    )?;
+    write_source(
+        &output_root,
+        android_legal_integration::HELPER_PATH,
+        android_legal_integration::HELPER_CONTENTS,
     )?;
 
     write_source(

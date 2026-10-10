@@ -1,3 +1,4 @@
+// v2.23.2.26 - Record legal evidence navigation and selection lifetime repair.
 // v2.23.2.25 - Record real Agent progress and clear outcome handling.
 // v2.23.2.24 - Record document AI crash guards and exact source scope.
 // v2.23.2.23 - Record knowledge Agent independent review and save safeguards.
@@ -26,7 +27,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.25";
+pub const LATEST_VERSION: &str = "2.23.2.26";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -56,6 +57,25 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.26",
+        updatedAt = "2026-10-10 10:12",
+        summary = "修复法律报告打开所属记录后停在知识或便签首页的问题",
+        sections = listOf(
+            AndroidUpdateSection("报告中的记录跳转", listOf(
+                "在法律风险线索中打开报告，再点按证据下的打开所属记录时，保留本次选中的知识页或便签，直接进入对应记录。修复页面首次打开时，旧的空态判断清掉新选择，导致只显示模块首页的问题。",
+                "知识页与便签使用同一套选择状态核对规则。晚到的旧判断不能关闭刚打开的另一条记录，实际已删除或重新锁定的内容仍按原流程退出无效编辑状态。"
+            )),
+            AndroidUpdateSection("证据与历史内容", listOf(
+                "继续按报告中的原始记录编号定位，并保留原有的工作区、内容可用性和加密解锁检查。打不开已删除或本机不存在的原记录时，不改用其他记录。",
+                "历史证据仍用于打开所属记录，便签保留已有的历史版本定位。打开证据不会自动恢复历史版本，不会覆盖正文、修改账目或触发新的 AI 分析。"
+            )),
+            AndroidUpdateSection("版本与验收范围", listOf(
+                "Android 候选版本为 2.23.2.26，版本代码 22295。更新记录继续按分钟显示，并保留此前版本的说明与复制入口。Windows 保持 1.1.0.7。",
+                "本版提供正式签名候选 APK，供覆盖安装和手机验收。请在法律报告中打开知识页、便签及历史证据，连续切换记录，并检查加密内容的解锁与返回。手机验收结果由实际操作确认。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.25",
         updatedAt = "2026-10-08 22:44",
@@ -669,7 +689,7 @@ mod tests {
             .map(|version| version.trim_matches('"'))
             .collect::<Vec<_>>();
         assert_eq!(versions.first().copied(), Some(LATEST_VERSION));
-        assert_eq!(versions.get(1).copied(), Some("2.23.2.24"));
+        assert_eq!(versions.get(1).copied(), Some("2.23.2.25"));
         assert!(versions.contains(&"2.23.2.20"));
         assert!(versions.contains(&"2.23.2.17"));
         assert!(versions.contains(&"2.23.2.16"));
