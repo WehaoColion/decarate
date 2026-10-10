@@ -1,3 +1,4 @@
+// v2.23.2.27 - Complete retained document exit saves after editor disposal.
 // v2.23.2.1 - Coalesce adjacent draft autosaves without crossing durable barriers.
 // Android implementation and JVM state tests are authored in this Rust generator.
 
@@ -21,6 +22,9 @@ pub fn render(path: &str, base: &str) -> Result<String, String> {
             replace(&mut source,
                 "    private val noteMutationController = NoteMutationDrainController(noteMutationScope) { throwable ->",
                 "    private val noteMutationController = NoteMutationDrainController(\n        noteMutationScope,\n        reportSlowOperation = { phase, millis ->\n            Log.w(\"NoteSaveLatency\", \"phase=$phase durationMs=$millis\")\n        }\n    ) { throwable ->")?;
+            replace(&mut source,
+                "    fun upsertNoteAndFlush(\n",
+                "    fun noteMutationEpoch(): Long = noteMutationController.mutationEpoch()\n\n    fun upsertNoteAndFlush(\n")?;
             replace(
                 &mut source,
                 "    fun upsertNoteAndFlush(\n",
@@ -78,6 +82,9 @@ pub fn render(path: &str, base: &str) -> Result<String, String> {
         }
         DOCUMENT => {
             replace(&mut source,
+                "    val isSavingDraft = mutableStateOf(false)",
+                "    val isSavingDraft = mutableStateOf(false)\n    val exitSaveGate = NoteEditorExitSaveGate<NoteEntry>()")?;
+            replace(&mut source,
                 "            viewModel.upsertNote(\n                nextNote,\n                expectedWorkspaceKey = editorWorkspaceKey,",
                 "            viewModel.upsertNoteAutosave(\n                nextNote,\n                expectedWorkspaceKey = editorWorkspaceKey,")?;
             replace(&mut source,
@@ -88,7 +95,26 @@ pub fn render(path: &str, base: &str) -> Result<String, String> {
                 "                    if (editorSaveCallbackActive.get() && viewModel.currentWorkspaceKey() == editorWorkspaceKey && requestGeneration == saveRequestGeneration) {\n                        saveState = if (saved) {")?;
             replace(&mut source,
                 "        val completePersistence: (Boolean) -> Unit = { persisted ->\n            if (persistenceGeneration == saveRequestGeneration) {",
-                "        val completePersistence: (Boolean) -> Unit = completion@ { saved ->\n            if (!editorSaveCallbackActive.get() || latestNote.id != candidate.id) return@completion\n            val persisted = saved && viewModel.currentWorkspaceKey() == editorWorkspaceKey\n            if (persistenceGeneration == saveRequestGeneration) {")?;
+                "        // This callback belongs to the retained document session. Completing it\n        // must not depend on the disposed composition still being alive. UI delivery\n        // is checked by the exit request ticket after the session state is settled.\n        val completePersistence: (Boolean) -> Unit = { saved ->\n            val persisted = saved && viewModel.currentWorkspaceKey() == editorWorkspaceKey\n            if (persistenceGeneration == saveRequestGeneration) {")?;
+            replace(&mut source,
+                "        saveState = DocumentEditorSaveState.SAVING\n        saveRequestGeneration += 1L\n        val persistenceGeneration = saveRequestGeneration",
+                "        val persistenceTicket = editorSession.exitSaveGate.beginPersistence(\n            draft = candidate,\n            requiresBlankDeletion = needsBlankDeletion,\n            queueEpoch = viewModel.noteMutationEpoch(),\n            onComplete = onComplete\n        ) ?: return\n        saveState = DocumentEditorSaveState.SAVING\n        saveRequestGeneration += 1L\n        val persistenceGeneration = saveRequestGeneration")?;
+            replace(&mut source,
+                "        val completePersistence: (Boolean) -> Unit = { saved ->\n            val persisted = saved && viewModel.currentWorkspaceKey() == editorWorkspaceKey\n            if (persistenceGeneration == saveRequestGeneration) {",
+                "        val completePersistence: (Boolean) -> Unit = { saved ->\n            val completion = editorSession.exitSaveGate.completePersistence(\n                ticket = persistenceTicket,\n                saved = saved,\n                workspaceMatches = viewModel.currentWorkspaceKey() == editorWorkspaceKey\n            )\n            val persisted = completion.savedLocally\n            if (completion.accepted && completion.latest && persistenceGeneration == saveRequestGeneration) {")?;
+            replace(&mut source,
+                "            onComplete(persisted)\n        }\n        when (\n            resolveSmartisanNoteExitAction(\n                base = latestNote,",
+                "            completion.deliver()\n        }\n        when (\n            resolveSmartisanNoteExitAction(\n                base = latestNote,")?;
+            replace(&mut source,
+                "        val alreadyDurable = committed != null &&\n            resolveSmartisanNoteExitAction(\n                base = committed,\n                candidate = candidate,\n                deleteBlankDraft = false\n            ) == SmartisanNoteExitAction.Noop\n        if (alreadyDurable && !needsBlankDeletion) {",
+                "        // Compare the complete NoteEntry, including non-text blocks and\n        // protection/history metadata. A text-only projection cannot prove this\n        // captured document is durable.\n        val alreadyDurable = editorSession.exitSaveGate.canSkipDurableExit(\n            cachedDraft = committed,\n            visibleDraft = latestNote,\n            candidate = candidate,\n            queueEpoch = viewModel.noteMutationEpoch()\n        )\n        if (alreadyDurable && !needsBlankDeletion) {")?;
+            replace(&mut source,
+                "        when (\n            resolveSmartisanNoteExitAction(\n                base = latestNote,\n                candidate = candidate,\n                deleteBlankDraft = deleteBlankDraft && blankDraftDeletionEligibleAtEntry\n            )\n        ) {",
+                "        val requestedExitAction = resolveSmartisanNoteExitAction(\n            base = latestNote,\n            candidate = candidate,\n            deleteBlankDraft = deleteBlankDraft && blankDraftDeletionEligibleAtEntry\n        )\n        // A queued autosave or explicit mutation can change the repository before\n        // this request runs. Only the verified fast path above may omit a captured\n        // upsert; an uncertain Noop must never flush an unrelated predecessor.\n        val exitAction = if (requestedExitAction == SmartisanNoteExitAction.Noop)\n            SmartisanNoteExitAction.SaveAndFlush else requestedExitAction\n        when (exitAction) {")?;
+            replace(&mut source,
+                "                onComplete = completePersistence\n            )\n        }\n    }\n\n    val latestExitPersistence",
+                "                onComplete = completePersistence\n            )\n        }\n        // Bind the actual queue epoch after dispatch. Preparation can fail\n        // synchronously, in which case the completed ticket cannot be marked.\n        editorSession.exitSaveGate.markEnqueued(persistenceTicket, viewModel.noteMutationEpoch())\n    }\n\n    val latestExitPersistence")?;
+            replace(&mut source, DOCUMENT_BACK_OLD, DOCUMENT_BACK_NEW)?;
         }
         REPOSITORY => {
             replace(&mut source, "    private suspend fun persistToWorkspace(workspaceKey: String, appData: AppData) {\n        withContext(Dispatchers.IO) {",
@@ -261,6 +287,8 @@ pub const CONTROLLER: &str = r####"internal class NoteMutationDrainController(
     // Only an adjacent, accepted, not-yet-started autosave can be replaced. This
     // reference is cleared by every explicit mutation and before execution starts.
     private var replaceableTail: QueuedNoteMutation? = null
+    private var acceptedMutationEpoch = 0L
+    fun mutationEpoch(): Long = synchronized(lifecycleLock) { acceptedMutationEpoch }
     private val shutdownRequested = AtomicBoolean(false)
     private val shutdownCompletion = CompletableDeferred<NoteSaveResult>()
     private val worker = scope.launch { runWorker() }
@@ -328,9 +356,11 @@ pub const CONTROLLER: &str = r####"internal class NoteMutationDrainController(
         val completion = CompletableDeferred<NoteSaveResult>()
         val queued = synchronized(lifecycleLock) {
             replaceableTail = null
-            !shutdownRequested.get() && queue.trySend(
+            val accepted = !shutdownRequested.get() && queue.trySend(
                 QueuedNoteMutation(operation = operation, completion = completion)
             ).isSuccess
+            if (accepted) acceptedMutationEpoch += 1L
+            accepted
         }
         if (!queued) completion.complete(queueUnavailableResult())
         return completion
@@ -344,7 +374,7 @@ pub const CONTROLLER: &str = r####"internal class NoteMutationDrainController(
         val completion = CompletableDeferred<NoteSaveResult>()
         val key = workspaceKey to noteId
         val accepted = synchronized(lifecycleLock) {
-            if (shutdownRequested.get() || workspaceKey.isBlank() || noteId.isBlank()) {
+            val admitted = if (shutdownRequested.get() || workspaceKey.isBlank() || noteId.isBlank()) {
                 false
             } else {
                 val previous = replaceableTail
@@ -359,6 +389,8 @@ pub const CONTROLLER: &str = r####"internal class NoteMutationDrainController(
                     queued
                 }
             }
+            if (admitted) acceptedMutationEpoch += 1L
+            admitted
         }
         if (!accepted) completion.complete(queueUnavailableResult())
         return completion
@@ -537,5 +569,454 @@ class NoteSaveQueueTest {
         assertTrue(saved.committed)
         assertEquals(listOf("failed-checkpoint", "durable-checkpoint", "durable-commit"), events)
     }
+
+    @Test fun acceptedQueueMutationsAdvanceFenceIncludingCoalescedAutosaves() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val gate = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val controller = NoteMutationDrainController(scope) { throw it }
+        try {
+            assertEquals(0L, controller.mutationEpoch())
+            controller.enqueue { started.complete(Unit); gate.await(); NoteSaveResult.committed() }
+            withTimeout(5_000L) { started.await() }
+            assertEquals(1L, controller.mutationEpoch())
+            controller.enqueueAutosave("w", "note") { NoteSaveResult.committed() }
+            assertEquals(2L, controller.mutationEpoch())
+            controller.enqueueAutosave("w", "note") { NoteSaveResult.committed() }
+            assertEquals(3L, controller.mutationEpoch())
+            controller.enqueue { NoteSaveResult.committed() }
+            assertEquals(4L, controller.mutationEpoch())
+            controller.enqueueAutosave("", "note") { fail("invalid draft admitted"); NoteSaveResult.committed() }
+            assertEquals(4L, controller.mutationEpoch())
+        } finally { gate.complete(Unit); scope.cancel() }
+    }
+
+}
+"####;
+
+pub const EXIT_SAVE_GATE_PATH: &str = "com/ofairyo/gridtimer/ui/NoteEditorExitSaveGate.kt";
+pub const EXIT_SAVE_GATE_CONTENTS: &str = r####"package com.ofairyo.gridtimer.ui
+
+// An accepted exit belongs to the retained draft session, rather than a single
+// composition. Disposing its UI cannot abandon its eventual storage result.
+internal class NoteEditorExitSaveGate<D> {
+    class Ticket internal constructor()
+
+    data class Completion(
+        val accepted: Boolean,
+        val savedLocally: Boolean,
+        val notifyUi: Boolean
+    )
+
+    class PersistenceTicket<D> internal constructor(
+        internal val draft: D,
+        internal val requiresBlankDeletion: Boolean,
+        internal val callbacks: MutableList<(Boolean) -> Unit>
+    ) {
+        internal var enqueuedEpoch: Long? = null
+    }
+
+    class PersistenceCompletion internal constructor(
+        val accepted: Boolean,
+        val latest: Boolean,
+        val savedLocally: Boolean,
+        private val callbacks: List<(Boolean) -> Unit>
+    ) {
+        fun deliver() = callbacks.forEach { it(savedLocally) }
+    }
+
+    private val pendingPersistence = mutableListOf<PersistenceTicket<D>>()
+    private var latestPersistence: PersistenceTicket<D>? = null
+    private var durableEpoch: Long? = null
+    private var current: Ticket? = null
+
+    @Synchronized
+    fun beginPersistence(
+        draft: D,
+        requiresBlankDeletion: Boolean,
+        queueEpoch: Long = 0L,
+        onComplete: (Boolean) -> Unit
+    ): PersistenceTicket<D>? {
+        // Only join the latest accepted persistence. Looking through older
+        // requests would reorder A -> B -> A into A -> B and lose the final A.
+        val pending = latestPersistence?.takeIf {
+            it.enqueuedEpoch == queueEpoch &&
+                it.draft == draft && (it.requiresBlankDeletion || !requiresBlankDeletion)
+        }
+        if (pending != null) {
+            pending.callbacks += onComplete
+            return null
+        }
+        return PersistenceTicket(draft, requiresBlankDeletion, mutableListOf(onComplete)).also {
+            pendingPersistence += it
+            latestPersistence = it
+        }
+    }
+
+    @Synchronized
+    fun markEnqueued(ticket: PersistenceTicket<D>, queueEpoch: Long): Boolean {
+        if (ticket !in pendingPersistence) return false
+        ticket.enqueuedEpoch = queueEpoch
+        return true
+    }
+
+    @Synchronized
+    fun isDurableAtEpoch(queueEpoch: Long): Boolean =
+        durableEpoch != null && durableEpoch == queueEpoch
+
+    @Synchronized
+    fun canSkipDurableExit(
+        cachedDraft: D?,
+        visibleDraft: D,
+        candidate: D,
+        queueEpoch: Long
+    ): Boolean = cachedDraft != null &&
+        candidate == cachedDraft && candidate == visibleDraft &&
+        pendingPersistence.isEmpty() && isDurableAtEpoch(queueEpoch)
+
+    @Synchronized
+    fun hasPendingPersistence(): Boolean = pendingPersistence.isNotEmpty()
+
+    @Synchronized
+    fun completePersistence(
+        ticket: PersistenceTicket<D>,
+        saved: Boolean,
+        workspaceMatches: Boolean
+    ): PersistenceCompletion {
+        if (!pendingPersistence.remove(ticket)) {
+            return PersistenceCompletion(false, false, false, emptyList())
+        }
+        val latest = latestPersistence === ticket
+        if (latest) {
+            latestPersistence = null
+            durableEpoch = ticket.enqueuedEpoch.takeIf { saved && workspaceMatches }
+        }
+        return PersistenceCompletion(true, latest, saved && workspaceMatches, ticket.callbacks.toList())
+    }
+
+    @Synchronized
+    fun begin(): Ticket? {
+        if (current != null) return null
+        return Ticket().also { current = it }
+    }
+
+    @Synchronized
+    fun isSaving(): Boolean = current != null
+
+    @Synchronized
+    fun complete(
+        ticket: Ticket,
+        saved: Boolean,
+        uiIsCurrent: Boolean,
+        workspaceMatches: Boolean
+    ): Completion {
+        if (current !== ticket) return Completion(false, false, false)
+        current = null
+        return Completion(
+            accepted = true,
+            savedLocally = saved && workspaceMatches,
+            notifyUi = uiIsCurrent && workspaceMatches
+        )
+    }
+}
+"####;
+
+const DOCUMENT_BACK_OLD: &str = r####"    fun handleBack() {
+        if (isSavingDraft) {
+            return
+        }
+        saveRequestGeneration += 1L
+        isSavingDraft = true
+        persistLatestDraft(
+            reason = "document_note_editor_back",
+            deleteBlankDraft = true
+        ) { persisted ->
+            isSavingDraft = false
+            if (persisted) {
+                editorSessionViewModel.clear(note.id, editorWorkspaceKey, editorSession)
+                onBack()
+            } else {
+                Toast.makeText(context, "保存失败，笔记仍留在编辑页。", Toast.LENGTH_LONG).show()
+            }
+        }
+    }"####;
+
+const DOCUMENT_BACK_NEW: &str = r####"    fun handleBack() {
+        val exitTicket = editorSession.exitSaveGate.begin() ?: return
+        isSavingDraft = true
+        persistLatestDraft(
+            reason = "document_note_editor_back",
+            deleteBlankDraft = true
+        ) exitCompletion@ { persisted ->
+            val completion = editorSession.exitSaveGate.complete(
+                ticket = exitTicket,
+                saved = persisted,
+                uiIsCurrent = editorSaveCallbackActive.get() && latestNote.id == note.id,
+                workspaceMatches = viewModel.currentWorkspaceKey() == editorWorkspaceKey
+            )
+            if (!completion.accepted) return@exitCompletion
+            // Release the retained busy state even when this editor was recreated
+            // or removed. An old callback may never navigate the replacement UI.
+            isSavingDraft = false
+            if (!completion.notifyUi) return@exitCompletion
+            if (completion.savedLocally) {
+                editorSessionViewModel.clear(note.id, editorWorkspaceKey, editorSession)
+                onBack()
+            } else {
+                Toast.makeText(context, "保存失败，笔记仍留在编辑页。", Toast.LENGTH_LONG).show()
+            }
+        }
+    }"####;
+
+pub const EXIT_SAVE_GATE_TEST_PATH: &str = "com/ofairyo/gridtimer/ui/NoteEditorExitSaveGateTest.kt";
+pub const EXIT_SAVE_GATE_TEST_CONTENTS: &str = r####"package com.ofairyo.gridtimer.ui
+
+import org.junit.Assert.*
+import org.junit.Test
+
+class NoteEditorExitSaveGateTest {
+    @Test fun successfulCurrentSaveClearsBusyAndAllowsNavigation() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val ticket = checkNotNull(gate.begin())
+        assertTrue(gate.isSaving())
+        val completion = gate.complete(ticket, saved = true, uiIsCurrent = true, workspaceMatches = true)
+        assertTrue(completion.accepted)
+        assertTrue(completion.savedLocally)
+        assertTrue(completion.notifyUi)
+        assertFalse(gate.isSaving())
+    }
+
+    @Test fun failedSaveClearsBusyAndAllowsRetryWithoutClaimingSuccess() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val ticket = checkNotNull(gate.begin())
+        val completion = gate.complete(ticket, saved = false, uiIsCurrent = true, workspaceMatches = true)
+        assertTrue(completion.accepted)
+        assertFalse(completion.savedLocally)
+        assertTrue(completion.notifyUi)
+        assertFalse(gate.isSaving())
+        assertNotNull(gate.begin())
+    }
+
+    @Test fun disposedEditorStillSettlesRetainedSaveWithoutNavigatingReplacement() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val ticket = checkNotNull(gate.begin())
+        val completion = gate.complete(ticket, saved = true, uiIsCurrent = false, workspaceMatches = true)
+        assertTrue(completion.accepted)
+        assertTrue(completion.savedLocally)
+        assertFalse(completion.notifyUi)
+        assertFalse(gate.isSaving())
+        assertNotNull(gate.begin())
+    }
+
+    @Test fun workspaceChangeSettlesOldBusyWithoutSuccessOrNavigation() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val ticket = checkNotNull(gate.begin())
+        val completion = gate.complete(ticket, saved = true, uiIsCurrent = true, workspaceMatches = false)
+        assertTrue(completion.accepted)
+        assertFalse(completion.savedLocally)
+        assertFalse(completion.notifyUi)
+        assertFalse(gate.isSaving())
+    }
+
+    @Test fun duplicateBackDoesNotAcceptAnotherInFlightExit() {
+        val gate = NoteEditorExitSaveGate<String>()
+        checkNotNull(gate.begin())
+        assertNull(gate.begin())
+        assertTrue(gate.isSaving())
+    }
+
+    @Test fun staleCompletionCannotReleaseNewerExit() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val old = checkNotNull(gate.begin())
+        gate.complete(old, saved = false, uiIsCurrent = true, workspaceMatches = true)
+        val fresh = checkNotNull(gate.begin())
+        val stale = gate.complete(old, saved = true, uiIsCurrent = true, workspaceMatches = true)
+        assertFalse(stale.accepted)
+        assertFalse(stale.savedLocally)
+        assertFalse(stale.notifyUi)
+        assertTrue(gate.isSaving())
+        assertTrue(gate.complete(fresh, saved = true, uiIsCurrent = true, workspaceMatches = true).accepted)
+    }
+
+    @Test fun duplicateCompletionCannotNavigateTwice() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val ticket = checkNotNull(gate.begin())
+        gate.complete(ticket, saved = true, uiIsCurrent = true, workspaceMatches = true)
+        val duplicate = gate.complete(ticket, saved = true, uiIsCurrent = true, workspaceMatches = true)
+        assertFalse(duplicate.accepted)
+        assertFalse(duplicate.notifyUi)
+        assertFalse(gate.isSaving())
+    }
+
+    @Test fun sameDraftLifecycleRequestsJoinOnePersistenceAndAllReceiveResult() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val delivered = mutableListOf<Boolean>()
+        val first = checkNotNull(gate.beginPersistence("draft", false) { delivered += it })
+        assertTrue(gate.markEnqueued(first, 0L))
+        assertNull(gate.beginPersistence("draft", false) { delivered += it })
+        val completion = gate.completePersistence(first, saved = true, workspaceMatches = true)
+        assertTrue(completion.accepted)
+        assertTrue(completion.latest)
+        completion.deliver()
+        assertEquals(listOf(true, true), delivered)
+    }
+
+    @Test fun blankDeletionCannotJoinWeakerPendingPersistence() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val weak = checkNotNull(gate.beginPersistence("blank", false) {})
+        assertTrue(gate.markEnqueued(weak, 0L))
+        val acceptedStrong = gate.beginPersistence("blank", true) {}
+        assertNotNull(acceptedStrong)
+        val strong = checkNotNull(acceptedStrong)
+        val old = gate.completePersistence(weak, saved = true, workspaceMatches = true)
+        assertFalse(old.latest)
+        assertTrue(gate.completePersistence(strong, saved = true, workspaceMatches = true).latest)
+    }
+
+    @Test fun differentDraftCannotJoinOrOverwriteLatestSessionCompletion() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val old = checkNotNull(gate.beginPersistence("old", false) {})
+        val fresh = checkNotNull(gate.beginPersistence("fresh", false) {})
+        assertFalse(gate.completePersistence(old, saved = true, workspaceMatches = true).latest)
+        assertTrue(gate.completePersistence(fresh, saved = true, workspaceMatches = true).latest)
+    }
+
+    @Test fun failureAndWorkspaceRejectionReachAllJoinedCallbacksAsFailure() {
+        for (workspaceMatches in listOf(false, true)) {
+            val gate = NoteEditorExitSaveGate<String>()
+            val delivered = mutableListOf<Boolean>()
+            val first = checkNotNull(gate.beginPersistence("draft", false) { delivered += it })
+            assertTrue(gate.markEnqueued(first, 0L))
+            assertNull(gate.beginPersistence("draft", false) { delivered += it })
+            val completion = gate.completePersistence(first, saved = !workspaceMatches, workspaceMatches = workspaceMatches)
+            assertFalse(completion.savedLocally)
+            completion.deliver()
+            assertEquals(listOf(false, false), delivered)
+            assertNotNull(gate.beginPersistence("draft", false) {})
+        }
+    }
+
+    @Test fun duplicatePersistenceCompletionCannotDeliverCallbacksAgain() {
+        val gate = NoteEditorExitSaveGate<String>()
+        var calls = 0
+        val ticket = checkNotNull(gate.beginPersistence("draft", false) { calls++ })
+        gate.completePersistence(ticket, saved = true, workspaceMatches = true).deliver()
+        val duplicate = gate.completePersistence(ticket, saved = true, workspaceMatches = true)
+        assertFalse(duplicate.accepted)
+        duplicate.deliver()
+        assertEquals(1, calls)
+    }
+
+
+    @Test fun sameDraftCannotJoinAcrossAnotherAcceptedDraft() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val events = mutableListOf<String>()
+        val firstA = checkNotNull(gate.beginPersistence("A", false) { events += "first-A" })
+        assertTrue(gate.markEnqueued(firstA, 0L))
+        val middleB = checkNotNull(gate.beginPersistence("B", false) { events += "B" })
+        assertTrue(gate.markEnqueued(middleB, 0L))
+        val acceptedFinalA = gate.beginPersistence("A", false) { events += "last-A" }
+        assertNotNull(acceptedFinalA)
+        val finalA = checkNotNull(acceptedFinalA)
+        assertFalse(gate.completePersistence(firstA, true, true).latest)
+        gate.completePersistence(middleB, true, true).deliver()
+        val finalCompletion = gate.completePersistence(finalA, true, true)
+        assertTrue(finalCompletion.latest)
+        finalCompletion.deliver()
+        assertEquals(listOf("B", "last-A"), events)
+    }
+
+
+
+    @Test fun pendingBlankDeletionAlsoSatisfiesWeakerLifecycleSave() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val callbacks = mutableListOf<String>()
+        val deletion = checkNotNull(gate.beginPersistence("blank", true) { callbacks += "back-delete" })
+        assertTrue(gate.markEnqueued(deletion, 0L))
+        assertNull(gate.beginPersistence("blank", false) { callbacks += "stop" })
+        assertNull(gate.beginPersistence("blank", false) { callbacks += "dispose" })
+        val completion = gate.completePersistence(deletion, true, true)
+        completion.deliver()
+        assertEquals(listOf("back-delete", "stop", "dispose"), callbacks)
+        assertFalse(gate.hasPendingPersistence())
+    }
+
+
+    @Test fun interveningQueueBarrierPreventsJoiningOlderLifecycleWrite() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val beforeRestore = checkNotNull(gate.beginPersistence("draft", false, 1L) {})
+        assertTrue(gate.markEnqueued(beforeRestore, 2L))
+        val afterRestore = gate.beginPersistence("draft", false, 3L) {}
+        assertNotNull(afterRestore)
+    }
+
+    @Test fun actualBoundEpochAllowsJoinButLaterAutosaveEpochForcesNewSave() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val ticket = checkNotNull(gate.beginPersistence("draft", false, 5L) {})
+        assertTrue(gate.markEnqueued(ticket, 6L))
+        assertNull(gate.beginPersistence("draft", false, 6L) {})
+        assertNotNull(gate.beginPersistence("draft", false, 7L) {})
+    }
+
+    @Test fun unmarkedOrAlreadyCompletedTicketCannotRepresentAcceptedQueueTail() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val first = checkNotNull(gate.beginPersistence("draft", false, 8L) {})
+        assertNotNull(gate.beginPersistence("draft", false, 8L) {})
+        gate.completePersistence(first, false, true)
+        assertFalse(gate.markEnqueued(first, 9L))
+    }
+
+
+    @Test fun completedDurableProofExpiresWhenAnotherQueueMutationIsAccepted() {
+        val gate = NoteEditorExitSaveGate<String>()
+        val ticket = checkNotNull(gate.beginPersistence("A", false, 10L) {})
+        assertTrue(gate.markEnqueued(ticket, 11L))
+        gate.completePersistence(ticket, true, true)
+        assertTrue(gate.isDurableAtEpoch(11L))
+        assertFalse(gate.isDurableAtEpoch(12L))
+        assertFalse(gate.hasPendingPersistence())
+    }
+
+    @Test fun failedUnmarkedOrWrongWorkspacePersistenceCannotCreateDurableProof() {
+        for (mode in 0..2) {
+            val gate = NoteEditorExitSaveGate<String>()
+            val ticket = checkNotNull(gate.beginPersistence("draft", false, 4L) {})
+            if (mode != 0) gate.markEnqueued(ticket, 5L)
+            gate.completePersistence(ticket, saved = mode != 1, workspaceMatches = mode != 2)
+            assertFalse(gate.isDurableAtEpoch(5L))
+        }
+    }
+
+
+    private data class CompleteDocumentPayload(
+        val text: String,
+        val contactCaption: String,
+        val callSummary: String,
+        val attachments: List<String>,
+        val protectionRevision: Long
+    )
+
+    @Test fun equalTextWithChangedNonTextPayloadCannotSkipDurableExit() {
+        val cached = CompleteDocumentPayload("same text", "old contact", "old call", listOf("image"), 4L)
+        val gate = NoteEditorExitSaveGate<CompleteDocumentPayload>()
+        val ticket = checkNotNull(gate.beginPersistence(cached, false, 1L) {})
+        gate.markEnqueued(ticket, 2L)
+        gate.completePersistence(ticket, true, true)
+        assertTrue(gate.canSkipDurableExit(cached, cached, cached, 2L))
+        for (changed in listOf(
+            cached.copy(contactCaption = "new contact"),
+            cached.copy(callSummary = "new call"),
+            cached.copy(attachments = listOf("image", "document")),
+            cached.copy(protectionRevision = 5L)
+        )) {
+            assertEquals(cached.text, changed.text)
+            assertFalse(gate.canSkipDurableExit(cached, cached, changed, 2L))
+            assertFalse(gate.canSkipDurableExit(cached, changed, cached, 2L))
+        }
+        assertFalse(gate.canSkipDurableExit(cached, cached, cached, 3L))
+        gate.beginPersistence(cached, false, 2L) {}
+        assertFalse(gate.canSkipDurableExit(cached, cached, cached, 2L))
+    }
+
 }
 "####;

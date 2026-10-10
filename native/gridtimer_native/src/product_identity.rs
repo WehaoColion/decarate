@@ -1,3 +1,4 @@
+// v2.23.2.27 Android - Settle retained knowledge editor saves safely.
 // v2.23.2.26 Android - Keep legal evidence navigation on its selected record.
 // v2.23.2.25 Android - Improve Agent execution feedback and save clarity.
 // v2.23.2.24 Android - Guard document AI sources without changing Windows identity.
@@ -95,8 +96,8 @@
 
 pub const WINDOWS_APP_VERSION: &str = "1.1.0.7";
 pub const SYNC_SUPERVISOR_MUTEX_NAME: &str = r"Local\GridTimerSyncSupervisor-v1";
-pub const ANDROID_APP_VERSION: &str = "2.23.2.26";
-pub const ANDROID_VERSION_CODE: i32 = 22295;
+pub const ANDROID_APP_VERSION: &str = "2.23.2.27";
+pub const ANDROID_VERSION_CODE: i32 = 22296;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductIdentity {
