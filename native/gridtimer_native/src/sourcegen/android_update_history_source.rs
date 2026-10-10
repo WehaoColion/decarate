@@ -72,7 +72,7 @@ internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
             )),
             AndroidUpdateSection("版本与验收范围", listOf(
                 "Android 候选版本为 2.23.2.26，版本代码 22295。更新记录继续按分钟显示，并保留此前版本的说明与复制入口。Windows 保持 1.1.0.7。",
-                "本次先提交源码 PR。正式签名 APK 构建和手机上的报告跳转验收另行进行，本次不把源码检查或本机测试作为真机验收结论。"
+                "本版提供正式签名候选 APK，供覆盖安装和手机验收。请在法律报告中打开知识页、便签及历史证据，连续切换记录，并检查加密内容的解锁与返回。手机验收结果由实际操作确认。"
             ))
         )
     ),
