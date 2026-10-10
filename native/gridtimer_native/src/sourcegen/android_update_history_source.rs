@@ -1,3 +1,4 @@
+// v2.23.2.27 - Record retained save settlement and matching exit reuse.
 // v2.23.2.26 - Record legal evidence navigation and selection lifetime repair.
 // v2.23.2.25 - Record real Agent progress and clear outcome handling.
 // v2.23.2.24 - Record document AI crash guards and exact source scope.
@@ -27,7 +28,7 @@
 // v2.23.1.1 - Add only this release's report sync details to Android history.
 // v2.23.1 - Generate the Android update history data from Rust-owned source.
 pub const PATH: &str = "com/ofairyo/gridtimer/ui/AndroidUpdateHistoryData.kt";
-pub const LATEST_VERSION: &str = "2.23.2.26";
+pub const LATEST_VERSION: &str = "2.23.2.27";
 
 // Append a new AndroidUpdateEntry before the existing entries for each future release.
 // This in-app history starts at 2.23.1; earlier releases are intentionally absent.
@@ -57,6 +58,25 @@ internal fun AndroidUpdateEntry.toClipboardText(): String = buildString {
 }
 
 internal val androidUpdateHistory: List<AndroidUpdateEntry> = listOf(
+    AndroidUpdateEntry(
+        version = "2.23.2.27",
+        updatedAt = "2026-10-11 00:04",
+        summary = "修复知识页退出保存状态卡住，减少相同草稿的重复退出提交",
+        sections = listOf(
+            AndroidUpdateSection("退出保存状态", listOf(
+                "知识页保存期间发生页面重建时，由保留的编辑会话接收实际完成结果。成功或失败都能结束本次等待，避免旧页面回调被丢弃后，重新打开仍停在正在保存。",
+                "旧页面不再执行返回或提示操作；晚到的旧结果不能清掉新一次保存。保存失败时保留草稿，不把未成功落盘的内容标为已保存，后续可以重试。"
+            )),
+            AndroidUpdateSection("重复保存与数据边界", listOf(
+                "同一编辑会话、同一工作区内，相同草稿的在途退出请求复用同一次保存结果，减少返回、页面停止和页面释放接连触发的重复持久提交。",
+                "内容发生变化或保存动作不同仍独立按顺序处理。空草稿删除、其他工作区和其他记录不能复用当前保存；正式持久化、恢复副本和加密保护检查继续执行。"
+            )),
+            AndroidUpdateSection("版本与验证范围", listOf(
+                "安卓源码候选为2.23.2.27，版本代码22296。此前更新记录与复制入口保留，更新时间按北京时间精确到分钟。Windows保持1.1.0.7。",
+                "本次先提交修复PR。截图能确认等待状态，不能确定手机当次每个阶段的耗时；本机测试不能代替手机上的退出、重建、失败重试和实际保存验收。"
+            ))
+        )
+    ),
     AndroidUpdateEntry(
         version = "2.23.2.26",
         updatedAt = "2026-10-10 10:12",
@@ -689,7 +709,7 @@ mod tests {
             .map(|version| version.trim_matches('"'))
             .collect::<Vec<_>>();
         assert_eq!(versions.first().copied(), Some(LATEST_VERSION));
-        assert_eq!(versions.get(1).copied(), Some("2.23.2.25"));
+        assert_eq!(versions.get(1).copied(), Some("2.23.2.26"));
         assert!(versions.contains(&"2.23.2.20"));
         assert!(versions.contains(&"2.23.2.17"));
         assert!(versions.contains(&"2.23.2.16"));

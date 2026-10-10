@@ -225,6 +225,11 @@ fn run() -> io::Result<()> {
         )?;
         write_source(
             &unit_test_output_root,
+            android_note_save_queue::EXIT_SAVE_GATE_TEST_PATH,
+            android_note_save_queue::EXIT_SAVE_GATE_TEST_CONTENTS,
+        )?;
+        write_source(
+            &unit_test_output_root,
             android_note_collection_recovery::TEST_PATH,
             android_note_collection_recovery::TEST_CONTENTS,
         )?;
@@ -249,6 +254,12 @@ fn run() -> io::Result<()> {
             android_legal_integration::TEST_CONTENTS,
         )?;
     }
+
+    write_source(
+        &output_root,
+        android_note_save_queue::EXIT_SAVE_GATE_PATH,
+        android_note_save_queue::EXIT_SAVE_GATE_CONTENTS,
+    )?;
 
     write_source(
         &output_root,

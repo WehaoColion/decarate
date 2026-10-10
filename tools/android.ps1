@@ -1,3 +1,4 @@
+# v0.0.36 - Gate retained editor save settlement and pending exit ordering.
 # v0.0.35 - Gate legal report navigation state tests and stale-selection mutation.
 # v0.0.34 - Verify actual Agent progress tests and generated JNI polling.
 # v0.0.33 - Gate executed document readability tests and the additional mutation case.
@@ -55,6 +56,7 @@ function Get-TaskInputs {
     if([version]$taskVersion -ge [version]'2.23.2.12'){$paths += Join-Path $taskRoot 'tools\verify_document_markdown_mutation.ps1'}
     if([version]$taskVersion -ge [version]'2.23.2.23'){$paths += Join-Path $taskRoot 'tools/verify_android_agent_mutation.ps1'}
     if([version]$taskVersion -ge [version]'2.23.2.26'){$paths += Join-Path $taskRoot 'tools/verify_legal_navigation_mutation.ps1'}
+    if([version]$taskVersion -ge [version]'2.23.2.27'){$paths += Join-Path $taskRoot 'tools/verify_note_exit_save_mutation.ps1';$paths += Join-Path $taskRoot 'tools/verify_note_save_queue_mutation.ps1'}
     # Cargo gates timer_windows_client behind the desktop feature. Its private
     # desktop/ modules are not inputs to the Android library, generator or tests.
     # Shared library modules (including desktop_*.rs) remain in the snapshot.
@@ -213,7 +215,13 @@ try {
     )){
         $suitePath = Join-Path $taskRoot ("app\build\test-results\testReleaseUnitTest\TEST-com.ofairyo.gridtimer."+$suite.package+"."+$suite.name+".xml")
         [xml]$suiteResult = Get-Content -LiteralPath $suitePath -Raw
-        $suiteExpected = ([regex]'@Test\s+fun ').Matches((Get-Content -LiteralPath (Join-Path $taskCrate ("src\sourcegen\"+$suite.source)) -Raw)).Count
+        $suiteText = Get-Content -LiteralPath (Join-Path $taskCrate ("src\sourcegen\"+$suite.source)) -Raw
+        if($suite.name -eq 'NoteSaveQueueTest'){
+            $queueTestLiteral = [regex]::Match($suiteText, '(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;')
+            if(!$queueTestLiteral.Success){throw 'Note save queue tests literal missing'}
+            $suiteText = $queueTestLiteral.Groups['body'].Value
+        }
+        $suiteExpected = ([regex]'@Test\s+fun ').Matches($suiteText).Count
         if($suiteExpected -lt 1 -or [int]$suiteResult.testsuite.tests -ne $suiteExpected -or [int]$suiteResult.testsuite.failures -ne 0 -or [int]$suiteResult.testsuite.errors -ne 0 -or [int]$suiteResult.testsuite.skipped -ne 0){throw ("Incomplete or failed knowledge suite: "+$suite.name)}
         Copy-Item -LiteralPath $suitePath -Destination (Join-Path $taskEvidence ($suite.name+'.xml')) -Force
         $taskKnowledgeTestCounts[$suite.name] = $suiteExpected
@@ -259,6 +267,33 @@ try {
         }
         Copy-Item -LiteralPath $suitePath -Destination (Join-Path $taskEvidence ($suite.name+'.xml')) -Force
         $taskAiWorkflowCounts[$suite.name] = $suiteExpected
+    }
+    if([version]$taskVersion -ge [version]'2.23.2.27'){
+        $exitEmitterPath = Join-Path $taskCrate 'src/sourcegen/android_note_save_queue.rs'
+        $exitEmitter = [IO.File]::ReadAllText($exitEmitterPath)
+        $exitLiteral = [regex]::Match($exitEmitter,'(?s)pub const EXIT_SAVE_GATE_CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;').Groups['body'].Value
+        $exitTests = [regex]::Match($exitEmitter,'(?s)pub const EXIT_SAVE_GATE_TEST_CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;').Groups['body'].Value
+        $exitCount = [regex]::Matches($exitTests,'@Test\s+fun ').Count
+        [xml]$exitResult = Get-Content -LiteralPath (Join-Path $taskRoot 'app/build/test-results/testReleaseUnitTest/TEST-com.ofairyo.gridtimer.ui.NoteEditorExitSaveGateTest.xml') -Raw
+        if(!$exitLiteral -or $exitCount -lt 12 -or [int]$exitResult.testsuite.tests -ne $exitCount -or [int]$exitResult.testsuite.failures -ne 0 -or [int]$exitResult.testsuite.errors -ne 0 -or [int]$exitResult.testsuite.skipped -ne 0){throw 'Retained editor save domain tests missing or failed'}
+        $exitHelperPath = Join-Path $taskRoot 'app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/NoteEditorExitSaveGate.kt'
+        $exitTestsPath = Join-Path $taskRoot 'app/build/generated/source/rustAndroid/test/com/ofairyo/gridtimer/ui/NoteEditorExitSaveGateTest.kt'
+        if([IO.File]::ReadAllText($exitHelperPath).Trim() -cne $exitLiteral.Trim()){throw 'Generated editor exit helper differs from tested production'}
+        $exitEditor = [IO.File]::ReadAllText((Join-Path $taskRoot 'app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/NoteDocumentEditor.kt'))
+        foreach($hook in @('val exitSaveGate = NoteEditorExitSaveGate<NoteEntry>()','editorSession.exitSaveGate.beginPersistence(','editorSession.exitSaveGate.completePersistence(','val exitTicket = editorSession.exitSaveGate.begin() ?: return','editorSession.exitSaveGate.complete(','completion.deliver()')){
+            if([regex]::Matches($exitEditor,[regex]::Escape($hook)).Count -ne 1){throw ('Retained editor save hook missing or duplicated: '+$hook)}
+        }
+        $exitCallback = $exitEditor.Substring($exitEditor.IndexOf('val completePersistence: (Boolean) -> Unit = { saved ->'))
+        $exitCallback = $exitCallback.Substring(0,$exitCallback.IndexOf('        when ('))
+        if($exitCallback.Contains('editorSaveCallbackActive') -or $exitCallback.Contains('return@completion')){throw 'Retained save completion still depends on disposed UI'}
+        Invoke-TaskCommand (Get-Command pwsh -ErrorAction Stop).Source @('-NoProfile','-File',(Join-Path $taskRoot 'tools/verify_note_exit_save_mutation.ps1'),'-Version',$taskVersion) 'note_exit_save_mutation.log'
+        $exitReceipt = Get-Content -LiteralPath (Join-Path $taskEvidence 'note_exit_save_mutation/receipt.json') -Raw | ConvertFrom-Json
+        if(!$exitReceipt.passed -or !$exitReceipt.productionUnchanged -or $exitReceipt.tests -ne $exitCount -or @($exitReceipt.cases | Where-Object {!$_.passed}).Count -ne 0 -or $exitReceipt.sourceSha256 -cne (Get-FileHash -LiteralPath $exitEmitterPath).Hash.ToLowerInvariant()){throw 'Retained editor save mutation evidence missing or stale'}
+        Invoke-TaskCommand (Get-Command pwsh -ErrorAction Stop).Source @('-NoProfile','-File',(Join-Path $taskRoot 'tools/verify_note_save_queue_mutation.ps1'),'-Version',$taskVersion) 'note_save_queue_mutation.log'
+        $queueReceipt = Get-Content -LiteralPath (Join-Path $taskEvidence 'note_save_queue_mutation/mutation_result.json') -Raw | ConvertFrom-Json
+        if(!$queueReceipt.passed -or !$queueReceipt.productionUnchanged -or $queueReceipt.tests -ne $taskKnowledgeTestCounts.NoteSaveQueueTest -or $queueReceipt.cases.Count -ne 6 -or @($queueReceipt.cases | Where-Object {!$_.passed}).Count -ne 0 -or $queueReceipt.sourceSha256.ToLowerInvariant() -cne (Get-FileHash -LiteralPath $exitEmitterPath).Hash.ToLowerInvariant()){throw 'Real queue epoch and barrier mutation proof missing or stale'}
+        Copy-Item -LiteralPath (Join-Path $taskRoot 'app/build/test-results/testReleaseUnitTest/TEST-com.ofairyo.gridtimer.ui.NoteEditorExitSaveGateTest.xml') -Destination (Join-Path $taskEvidence 'NoteEditorExitSaveGateTest.xml') -Force
+        Write-TaskJson 'note_exit_save_integration.json' ([ordered]@{passed=$true;tests=$exitCount;generatedHelperMatchesProduction=$true;sessionCompletionConnected=$true;mutationCases=$exitReceipt.cases.Count;sourceSnapshotSha256=$before.sha256;hostOnly=$true;deviceVerified=$false})
     }
     if([version]$taskVersion -ge [version]'2.23.2.26'){
         Invoke-TaskCommand (Get-Command pwsh -ErrorAction Stop).Source @('-NoProfile','-File',(Join-Path $taskRoot 'tools/verify_legal_navigation_mutation.ps1'),'-Version',$taskVersion) 'legal_navigation_mutation.log'
