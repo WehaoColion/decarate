@@ -1,3 +1,4 @@
+// v2.23.2.26 - Preserve the record selected from a legal report.
 // v2.23.2.25 - Show real Agent progress and explicit result states.
 // v2.23.2.24 - Guard document AI opening and source lifetime.
 // v2.23.2.23 - Add independent Agent review and verified draft saving.
@@ -149,8 +150,8 @@ android {
         applicationId 'com.ofairyo.gridtimer'
         minSdk 26
         targetSdk 34
-        versionCode 22294
-        versionName '2.23.2.25'
+        versionCode 22295
+        versionName '2.23.2.26'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         manifestPlaceholders.xiaomiAppId = ''
         manifestPlaceholders.xiaomiBuildTypeDebug = 'true'

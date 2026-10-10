@@ -1,3 +1,67 @@
+// v2.23.2.26 - Preserve evidence navigation against stale note-selection checks.
+pub const HELPER_PATH: &str = "com/ofairyo/gridtimer/ui/NoteSelectionCheck.kt";
+pub const TEST_PATH: &str = "com/ofairyo/gridtimer/ui/NoteSelectionCheckTest.kt";
+
+pub const HELPER_CONTENTS: &str = r####"package com.ofairyo.gridtimer.ui
+
+// Capture both values from one composition. A delayed check must not clear a
+// different record selected by evidence navigation or a completed unlock.
+internal data class NoteSelectionCheck(
+    val selectedId: String?,
+    val resolvedId: String?
+) {
+    fun shouldClear(currentId: String?): Boolean =
+        selectedId != null && selectedId == currentId && resolvedId != selectedId
+}
+"####;
+
+pub const TEST_CONTENTS: &str = r####"package com.ofairyo.gridtimer.ui
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class NoteSelectionCheckTest {
+    @Test fun staleEmptyCheckDoesNotClearOpenedRecord() {
+        val check = NoteSelectionCheck(selectedId = null, resolvedId = null)
+        assertFalse(check.shouldClear("evidence-owner"))
+    }
+
+    @Test fun staleMissingCheckDoesNotClearDifferentRecord() {
+        val check = NoteSelectionCheck(selectedId = "previous", resolvedId = null)
+        assertFalse(check.shouldClear("evidence-owner"))
+    }
+
+    @Test fun selectedRecordThatReallyDisappearedIsCleared() {
+        val check = NoteSelectionCheck(selectedId = "deleted", resolvedId = null)
+        assertTrue(check.shouldClear("deleted"))
+    }
+
+    @Test fun resolvedSelectedRecordIsRetained() {
+        val check = NoteSelectionCheck(selectedId = "record", resolvedId = "record")
+        assertFalse(check.shouldClear("record"))
+    }
+
+    @Test fun emptyStateIsRetained() {
+        val check = NoteSelectionCheck(selectedId = null, resolvedId = null)
+        assertFalse(check.shouldClear(null))
+    }
+
+    @Test fun completedUnlockIsNotClearedByPendingCheck() {
+        var selectedId: String? = null
+        val pendingCheck = NoteSelectionCheck(selectedId = selectedId, resolvedId = null)
+        selectedId = "protected-record"
+        assertFalse(pendingCheck.shouldClear(selectedId))
+        assertFalse(NoteSelectionCheck(selectedId, selectedId).shouldClear(selectedId))
+    }
+
+    @Test fun resolvedRecordWithDifferentIdentityIsNotAccepted() {
+        val check = NoteSelectionCheck(selectedId = "record", resolvedId = "other")
+        assertTrue(check.shouldClear("record"))
+    }
+}
+"####;
+
 // v2.23 - Connect Android finance to the legal clue page and evidence navigation.
 
 fn replace_once(source: String, before: &str, after: &str) -> Result<String, String> {
@@ -29,7 +93,7 @@ fn render_screen(source: &str) -> Result<String, String> {
     source = replace_once(
         source,
         "    var selectedDestination by rememberSaveable { mutableStateOf(HomeNavigationDestination.BOARD) }",
-        "    var selectedDestination by rememberSaveable { mutableStateOf(HomeNavigationDestination.BOARD) }\n    var pendingLegalNoteId by rememberSaveable { mutableStateOf<String?>(null) }\n    var pendingLegalVersionId by rememberSaveable { mutableStateOf<String?>(null) }",
+        "    var selectedDestination by rememberSaveable { mutableStateOf(HomeNavigationDestination.BOARD) }\n    var pendingLegalNoteId by rememberSaveable(activeWorkspaceKey) { mutableStateOf<String?>(null) }\n    var pendingLegalVersionId by rememberSaveable(activeWorkspaceKey) { mutableStateOf<String?>(null) }",
     )?;
     source = replace_once(
         source,
@@ -188,6 +252,21 @@ fn render_note_studio(source: &str) -> Result<String, String> {
         return Err("expected two note studio unlock anchors".into());
     }
     source = source.replace(anchor, replacement);
+    let old_selection_check = r####"    LaunchedEffect(selectedNoteId, selectedNote) {
+        if (selectedNoteId != null && selectedNote == null) {
+            selectedNoteId = null
+        }
+    }"####;
+    let selection_check = r####"    val noteSelectionCheck = NoteSelectionCheck(selectedNoteId, selectedNote?.id)
+    LaunchedEffect(noteSelectionCheck) {
+        if (noteSelectionCheck.shouldClear(selectedNoteId)) {
+            selectedNoteId = null
+        }
+    }"####;
+    if source.matches(old_selection_check).count() != 2 {
+        return Err("expected notebook and sticky-note selection checks".into());
+    }
+    source = source.replace(old_selection_check, selection_check);
     source = replace_once(
         source,
         "                SmartisanNoteEditorContent(\n                    note = selectedNote,\n                    folders = appData.noteFolders,\n                    highlightQuery = searchLocateQuery,",

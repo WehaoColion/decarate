@@ -1,3 +1,4 @@
+# v0.0.35 - Gate legal report navigation state tests and stale-selection mutation.
 # v0.0.34 - Verify actual Agent progress tests and generated JNI polling.
 # v0.0.33 - Gate executed document readability tests and the additional mutation case.
 # v0.0.32 - Gate executed Agent review tests and the shared generated save policy.
@@ -53,6 +54,7 @@ function Get-TaskInputs {
     if([version]$taskVersion -ge [version]'2.23.2.11'){$paths += Join-Path $taskRoot 'tools\verify_finance_workspace_mutation.ps1'}
     if([version]$taskVersion -ge [version]'2.23.2.12'){$paths += Join-Path $taskRoot 'tools\verify_document_markdown_mutation.ps1'}
     if([version]$taskVersion -ge [version]'2.23.2.23'){$paths += Join-Path $taskRoot 'tools/verify_android_agent_mutation.ps1'}
+    if([version]$taskVersion -ge [version]'2.23.2.26'){$paths += Join-Path $taskRoot 'tools/verify_legal_navigation_mutation.ps1'}
     # Cargo gates timer_windows_client behind the desktop feature. Its private
     # desktop/ modules are not inputs to the Android library, generator or tests.
     # Shared library modules (including desktop_*.rs) remain in the snapshot.
@@ -157,6 +159,7 @@ try {
     if([version]$taskVersion -ge [version]'2.23.2.16'){$formatPaths += @('src\sourcegen\structured_mobile_data.rs','src\sourcegen\structured_mobile_tests.rs') | ForEach-Object {Join-Path $taskCrate $_}}
     if([version]$taskVersion -ge [version]'2.23.2.23'){$formatPaths += @('src/android_agent_upgrade.rs','src/android_agent_registry.rs','src/sourcegen/android_agent_upgrade.rs') | ForEach-Object {Join-Path $taskCrate $_}}
     if([version]$taskVersion -ge [version]'2.23.2.25'){$formatPaths += @('src/android_agent_progress.rs','src/sourcegen/android_agent_progress_ui.rs') | ForEach-Object {Join-Path $taskCrate $_}}
+    if([version]$taskVersion -ge [version]'2.23.2.26'){$formatPaths += Join-Path $taskCrate 'src/sourcegen/android_legal_integration.rs'}
     Invoke-TaskCommand $taskRustfmt (@('--check','--edition','2021','--config','skip_children=true') + $formatPaths) 'rust_format.log'
     $cargoBase = @('--manifest-path',(Join-Path $taskCrate 'Cargo.toml'),'--locked','--offline')
     # These suites exercise runtime cancellation and WinHTTP, neither of which
@@ -233,6 +236,7 @@ try {
     if([version]$taskVersion -ge [version]'2.23.2.9'){$taskWorkflowSuites += @{name='LegalAnalysisWorkflowTest';package='ui';source='android_legal_workflow.rs'}}
     if([version]$taskVersion -ge [version]'2.23.2.10'){$taskWorkflowSuites += @{name='DocumentCaretPolicyTest';package='ui';source='android_document_caret.rs'}}
     if([version]$taskVersion -ge [version]'2.23.2.12'){$taskWorkflowSuites += @{name='DocumentMarkdownBlocksTest';package='ui';source='android_document_markdown.rs'}}
+    if([version]$taskVersion -ge [version]'2.23.2.26'){$taskWorkflowSuites += @{name='NoteSelectionCheckTest';package='ui';source='android_legal_integration.rs'}}
     foreach ($suite in $taskWorkflowSuites) {
         $suiteSource = Get-Content -LiteralPath (Join-Path $taskCrate ('src\sourcegen\'+$suite.source)) -Raw
         $suiteBody = [regex]::Match($suiteSource, '(?s)pub const TEST_CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;')
@@ -255,6 +259,17 @@ try {
         }
         Copy-Item -LiteralPath $suitePath -Destination (Join-Path $taskEvidence ($suite.name+'.xml')) -Force
         $taskAiWorkflowCounts[$suite.name] = $suiteExpected
+    }
+    if([version]$taskVersion -ge [version]'2.23.2.26'){
+        Invoke-TaskCommand (Get-Command pwsh -ErrorAction Stop).Source @('-NoProfile','-File',(Join-Path $taskRoot 'tools/verify_legal_navigation_mutation.ps1'),'-Version',$taskVersion) 'legal_navigation_mutation.log'
+        $navigationSource=[IO.File]::ReadAllText((Join-Path $taskCrate 'src/sourcegen/android_legal_integration.rs'))
+        $navigationLiteral=[regex]::Match($navigationSource,'(?s)pub const HELPER_CONTENTS:\s*&str\s*=\s*r(?<hashes>#+)"(?<body>.*?)"\k<hashes>;').Groups['body'].Value
+        $navigationHelper=[IO.File]::ReadAllText((Join-Path $taskRoot 'app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/NoteSelectionCheck.kt'))
+        if(!$navigationLiteral -or $navigationLiteral.Trim() -cne $navigationHelper.Trim()){throw 'Generated legal selection helper differs from tested production'}
+        $navigationStudio=[IO.File]::ReadAllText((Join-Path $taskRoot 'app/build/generated/source/rustAndroid/main/com/ofairyo/gridtimer/ui/NoteStudioSheet.kt'))
+        if([regex]::Matches($navigationStudio,'NoteSelectionCheck\(selectedNoteId, selectedNote\?\.id\)').Count -ne 2 -or [regex]::Matches($navigationStudio,'noteSelectionCheck\.shouldClear\(selectedNoteId\)').Count -ne 2 -or $navigationStudio.Contains('LaunchedEffect(selectedNoteId, selectedNote)')){throw 'Legal selection policy must be connected to both generated note editors'}
+        $navigationReceipt=Get-Content -LiteralPath (Join-Path $taskEvidence 'legal_navigation_mutation/receipt.json') -Raw | ConvertFrom-Json
+        if(!$navigationReceipt.passed -or !$navigationReceipt.productionUnchanged -or $navigationReceipt.tests -ne $taskAiWorkflowCounts.NoteSelectionCheckTest -or $navigationReceipt.cases.Count -ne 4 -or @($navigationReceipt.cases | Where-Object {!$_.passed}).Count -ne 0){throw 'Legal record navigation mutation verification failed'}
     }
     if([version]$taskVersion -ge [version]'2.23.2.23'){
         $upgradeSource = Get-Content -LiteralPath (Join-Path $taskCrate 'src/android_agent_upgrade.rs') -Raw
